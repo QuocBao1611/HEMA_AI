@@ -1,0 +1,421 @@
+from datetime import datetime, timezone
+from typing import Any
+
+from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
+
+from backend.app.core.config import settings
+from backend.app.db.base import Base
+from backend.app.db.models import AnalysisRecord, AppSetting, LabelConfiguration, ModelCatalog, User
+from backend.app.db.session import database_health, engine, mark_database_ready, open_session, ping_database
+from backend.app.core.auth_utils import get_password_hash
+from backend.app.services.classifier_service import (
+    force_default_model,
+    get_classifier,
+    get_classifier_registry,
+    get_default_model_id,
+)
+
+
+CLINICAL_FLAG_SETTINGS_KEY = "clinical_flag_rules"
+DEFAULT_CLINICAL_FLAG_RULES = [
+    {
+        "key": "ig_present",
+        "enabled": True,
+        "label": "IG",
+        "source": "grouped_counts",
+        "field": "count",
+        "threshold": 1,
+        "severity": "critical",
+        "title": "Nghi ngo co te bao non bat thuong",
+        "action": "Can bac si huyet hoc xem lai tieu ban va doi chieu them voi lam sang.",
+    },
+    {
+        "key": "ne_high",
+        "enabled": True,
+        "label": "NE",
+        "source": "wbc_differential",
+        "field": "ratio",
+        "threshold": 0.8,
+        "severity": "warning",
+        "title": "Nghi ngo nhiem trung cap",
+        "action": "Nen doi chieu them voi CRP, Procalcitonin va cac chi so lam sang.",
+    },
+    {
+        "key": "eo_high",
+        "enabled": True,
+        "label": "EO",
+        "source": "wbc_differential",
+        "field": "ratio",
+        "threshold": 0.08,
+        "severity": "warning",
+        "title": "Tang bach cau ai toan",
+        "action": "Can xem xet di ung, ky sinh trung hoac benh ly tuy lien quan.",
+    },
+    {
+        "key": "erb_present",
+        "enabled": True,
+        "label": "ERB",
+        "source": "estimated_counts",
+        "field": "count",
+        "threshold": 1,
+        "severity": "warning",
+        "title": "Phat hien hong cau co nhan",
+        "action": "Nen kiem tra them cac nguyen nhan thieu mau tan huyet hoac roi loan tuy.",
+    },
+    {
+        "key": "ba_high",
+        "enabled": True,
+        "label": "BA",
+        "source": "wbc_differential",
+        "field": "ratio",
+        "threshold": 0.03,
+        "severity": "warning",
+        "title": "Tang bach cau ai kiem",
+        "action": "Can doi chieu them voi boi canh tang sinh tuy va cac chi so lien quan.",
+    },
+]
+
+
+def initialize_database() -> tuple[bool, str | None]:
+    ok, error = ping_database()
+    if not ok:
+        return False, error
+
+    if settings.database_auto_create:
+        try:
+            Base.metadata.create_all(bind=engine)
+            mark_database_ready(True, None)
+            ensure_default_user()
+            return True, None
+        except SQLAlchemyError:
+            message = "Không thể khởi tạo bảng dữ liệu."
+            mark_database_ready(False, message)
+            return False, message
+    return True, None
+
+
+def sync_model_catalog() -> tuple[bool, str | None]:
+    if not database_health()["ready"]:
+        return False, database_health()["last_error"]  # type: ignore[index]
+
+    registry = get_classifier_registry()
+    default_model_id = get_default_model_id()
+
+    try:
+        with open_session() as db:
+            existing = {
+                item.model_id: item
+                for item in db.execute(select(ModelCatalog)).scalars().all()
+            }
+            persisted_default_id = next(
+                (item.model_id for item in existing.values() if item.is_default and item.model_id in registry),
+                None,
+            )
+            if persisted_default_id:
+                force_default_model(persisted_default_id)
+                default_model_id = persisted_default_id
+            for classifier in registry.values():
+                record = existing.get(classifier.model_id)
+                if record is None:
+                    record = ModelCatalog(model_id=classifier.model_id)
+                    db.add(record)
+                record.display_name = classifier.display_name
+                record.source_path = classifier.source_path.name
+                record.loaded_path = classifier.loaded_path.name
+                record.preprocessing = classifier.preprocessing
+                record.num_classes = classifier.num_classes
+                record.input_shape = classifier.input_shape
+                record.is_default = classifier.model_id == default_model_id
+            db.commit()
+        return True, None
+    except SQLAlchemyError:
+        return False, "Không thể đồng bộ model catalog với cơ sở dữ liệu."
+
+
+def save_default_model_selection(model_id: str) -> tuple[bool, str | None]:
+    if not database_health()["ready"]:
+        return False, database_health()["last_error"]  # type: ignore[index]
+
+    try:
+        with open_session() as db:
+            rows = db.execute(select(ModelCatalog)).scalars().all()
+            found = False
+            for row in rows:
+                row.is_default = row.model_id == model_id
+                if row.is_default:
+                    found = True
+            if not found:
+                return False, "Khong the luu model mac dinh vi model khong ton tai trong database."
+            db.commit()
+        return True, None
+    except SQLAlchemyError:
+        return False, "Khong the luu model mac dinh."
+
+
+def ensure_default_user() -> tuple[bool, str | None]:
+    if not database_health()["ready"]:
+        return False, database_health()["last_error"]  # type: ignore[index]
+
+    try:
+        with open_session() as db:
+            admin = db.execute(select(User).where(User.username == "admin")).scalar_one_or_none()
+            if admin is None:
+                admin = User(
+                    username="admin",
+                    full_name="System Administrator",
+                    hashed_password=get_password_hash("admin123"),
+                    role="admin",
+                )
+                db.add(admin)
+                db.commit()
+        return True, None
+    except SQLAlchemyError:
+        return False, "Không thể khởi tạo người dùng mặc định."
+
+
+def get_user_by_username(username: str) -> User | None:
+    if not database_health()["ready"]:
+        return None
+    try:
+        with open_session() as db:
+            return db.execute(select(User).where(User.username == username)).scalar_one_or_none()
+    except SQLAlchemyError:
+        return None
+
+
+def apply_database_label_overrides() -> tuple[bool, str | None]:
+    if not database_health()["ready"]:
+        return False, database_health()["last_error"]  # type: ignore[index]
+
+    try:
+        with open_session() as db:
+            rows = db.execute(select(LabelConfiguration)).scalars().all()
+            for row in rows:
+                try:
+                    classifier = get_classifier(row.model_id)
+                except Exception:
+                    continue
+                if isinstance(row.class_names, list) and len(row.class_names) == classifier.num_classes:
+                    classifier.class_names = [str(item) for item in row.class_names]
+        return True, None
+    except SQLAlchemyError:
+        return False, "Không thể áp dụng cấu hình nhãn từ cơ sở dữ liệu."
+
+
+def save_label_configuration(model_id: str, class_names: list[str]) -> tuple[bool, str | None]:
+    if not database_health()["ready"]:
+        return False, database_health()["last_error"]  # type: ignore[index]
+
+    try:
+        with open_session() as db:
+            row = db.execute(
+                select(LabelConfiguration).where(LabelConfiguration.model_id == model_id)
+            ).scalar_one_or_none()
+            if row is None:
+                row = LabelConfiguration(model_id=model_id, class_names=class_names)
+                db.add(row)
+            else:
+                row.class_names = class_names
+            db.commit()
+        return True, None
+    except SQLAlchemyError:
+        return False, "Không thể lưu cấu hình nhãn vào cơ sở dữ liệu."
+
+
+def load_clinical_flag_rules() -> list[dict[str, Any]]:
+    if not database_health()["ready"]:
+        return [dict(rule) for rule in DEFAULT_CLINICAL_FLAG_RULES]
+
+    try:
+        with open_session() as db:
+            row = db.execute(
+                select(AppSetting).where(AppSetting.setting_key == CLINICAL_FLAG_SETTINGS_KEY)
+            ).scalar_one_or_none()
+            if row is None or not isinstance(row.setting_value, dict):
+                return [dict(rule) for rule in DEFAULT_CLINICAL_FLAG_RULES]
+            rules = row.setting_value.get("rules")
+            if not isinstance(rules, list):
+                return [dict(rule) for rule in DEFAULT_CLINICAL_FLAG_RULES]
+            return [dict(item) for item in rules if isinstance(item, dict)]
+    except SQLAlchemyError:
+        return [dict(rule) for rule in DEFAULT_CLINICAL_FLAG_RULES]
+
+
+def save_clinical_flag_rules(rules: list[dict[str, Any]]) -> tuple[bool, str | None]:
+    if not database_health()["ready"]:
+        return False, database_health()["last_error"]  # type: ignore[index]
+
+    try:
+        with open_session() as db:
+            row = db.execute(
+                select(AppSetting).where(AppSetting.setting_key == CLINICAL_FLAG_SETTINGS_KEY)
+            ).scalar_one_or_none()
+            if row is None:
+                row = AppSetting(setting_key=CLINICAL_FLAG_SETTINGS_KEY, setting_value={"rules": rules})
+                db.add(row)
+            else:
+                row.setting_value = {"rules": rules}
+            db.commit()
+        return True, None
+    except SQLAlchemyError:
+        return False, "Khong the luu cau hinh clinical flags."
+
+
+def summarize_result_for_history(result: dict[str, Any]) -> dict[str, Any]:
+    image_size = result.get("image_size") or {}
+    dominant = result.get("dominant_cell_type")
+    dominant_label = dominant.get("label") if isinstance(dominant, dict) else dominant
+
+    selected_model_id = result.get("selected_model_id")
+    selected_model_name = result.get("selected_model_name")
+    detected_cell_count = result.get("detected_cell_count") or result.get("detected_region_count")
+    classified_cell_count = result.get("classified_cell_count")
+    average_confidence = result.get("average_confidence")
+
+    if result.get("mode") == "compare_models":
+        comparison_rows = result.get("comparison_rows") or []
+        best_row = result.get("best_by_average_confidence") or (comparison_rows[0] if comparison_rows else None)
+        selected_model_id = selected_model_id or (best_row or {}).get("model_id")
+        if comparison_rows:
+            selected_model_name = selected_model_name or f"So sánh {len(comparison_rows)} mô hình"
+            if average_confidence is None:
+                average_confidence = sum(float(row.get("average_confidence") or 0) for row in comparison_rows) / len(
+                    comparison_rows
+                )
+            if classified_cell_count is None:
+                classified_cell_count = max(int(row.get("classified_cell_count") or 0) for row in comparison_rows)
+            if detected_cell_count is None:
+                detected_cell_count = result.get("shared_detection", {}).get("box_count") or max(
+                    int(row.get("detected_cell_count") or 0) for row in comparison_rows
+                )
+            dominant_label = dominant_label or (best_row or {}).get("dominant_label")
+        else:
+            selected_model_name = selected_model_name or "So sánh mô hình"
+
+    return {
+        "image_size": image_size,
+        "dominant_label": dominant_label,
+        "selected_model_id": selected_model_id,
+        "selected_model_name": selected_model_name,
+        "detected_cell_count": detected_cell_count,
+        "classified_cell_count": classified_cell_count,
+        "average_confidence": average_confidence,
+    }
+
+
+def record_analysis(result: dict[str, Any], request_payload: dict[str, Any] | None = None) -> tuple[bool, str | None]:
+    if not database_health()["ready"]:
+        return False, database_health()["last_error"]  # type: ignore[index]
+
+    summary = summarize_result_for_history(result)
+    image_size = summary["image_size"]
+
+    try:
+        with open_session() as db:
+            db.add(
+                AnalysisRecord(
+                    mode=str(result.get("mode") or "unknown"),
+                    analysis_mode=result.get("analysis_mode"),
+                    filename=result.get("filename"),
+                    model_id=summary["selected_model_id"],
+                    model_name=summary["selected_model_name"],
+                    image_width=image_size.get("width"),
+                    image_height=image_size.get("height"),
+                    detected_cell_count=summary["detected_cell_count"],
+                    classified_cell_count=summary["classified_cell_count"],
+                    average_confidence=summary["average_confidence"],
+                    dominant_label=summary["dominant_label"],
+                    request_payload=request_payload or {},
+                    result_payload=result,
+                    notes=result.get("note"),
+                )
+            )
+            db.commit()
+        return True, None
+    except SQLAlchemyError:
+        return False, "Không thể lưu lịch sử phân tích vào cơ sở dữ liệu."
+
+
+def list_recent_analyses(limit: int | None = None) -> list[dict[str, Any]]:
+    return list_recent_analyses_filtered(limit=limit)
+
+
+def list_recent_analyses_filtered(
+    *,
+    limit: int | None = None,
+    model_id: str | None = None,
+    mode: str | None = None,
+    since_days: int | None = None,
+) -> list[dict[str, Any]]:
+    if not database_health()["ready"]:
+        return []
+
+    try:
+        with open_session() as db:
+            size = limit or settings.history_page_size
+            query = select(AnalysisRecord)
+            if model_id:
+                query = query.where(AnalysisRecord.model_id == model_id)
+            if mode:
+                query = query.where(AnalysisRecord.mode == mode)
+            if since_days is not None and since_days > 0:
+                from datetime import timedelta
+
+                cutoff = datetime.now(timezone.utc) - timedelta(days=since_days)
+                query = query.where(AnalysisRecord.created_at >= cutoff)
+
+            rows = db.execute(query.order_by(AnalysisRecord.created_at.desc()).limit(size)).scalars().all()
+            return [
+                {
+                    "id": row.id,
+                    "mode": row.mode,
+                    "analysis_mode": row.analysis_mode,
+                    "filename": row.filename,
+                    "model_id": row.model_id,
+                    "model_name": row.model_name,
+                    "image_width": row.image_width,
+                    "image_height": row.image_height,
+                    "detected_cell_count": row.detected_cell_count,
+                    "classified_cell_count": row.classified_cell_count,
+                    "average_confidence": row.average_confidence,
+                    "dominant_label": row.dominant_label,
+                    "created_at": row.created_at.isoformat(),
+                }
+                for row in rows
+            ]
+    except SQLAlchemyError:
+        return []
+
+
+def get_analysis_record(record_id: int) -> dict[str, Any] | None:
+    if not database_health()["ready"]:
+        return None
+
+    try:
+        with open_session() as db:
+            row = db.execute(
+                select(AnalysisRecord).where(AnalysisRecord.id == record_id)
+            ).scalar_one_or_none()
+            if row is None:
+                return None
+            return {
+                "id": row.id,
+                "mode": row.mode,
+                "analysis_mode": row.analysis_mode,
+                "filename": row.filename,
+                "model_id": row.model_id,
+                "model_name": row.model_name,
+                "image_width": row.image_width,
+                "image_height": row.image_height,
+                "detected_cell_count": row.detected_cell_count,
+                "classified_cell_count": row.classified_cell_count,
+                "average_confidence": row.average_confidence,
+                "dominant_label": row.dominant_label,
+                "request_payload": row.request_payload,
+                "result_payload": row.result_payload,
+                "notes": row.notes,
+                "created_at": row.created_at.isoformat(),
+            }
+    except SQLAlchemyError:
+        return None

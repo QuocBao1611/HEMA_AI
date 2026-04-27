@@ -1,0 +1,24 @@
+import * as React from "react";
+
+import { cn } from "@/lib/utils/cn";
+
+type SurfaceCardProps = React.HTMLAttributes<HTMLDivElement>;
+
+export function SurfaceCard({
+  className,
+  children,
+  ...props
+}: SurfaceCardProps) {
+  return (
+    <div
+      className={cn(
+        "rounded-lg border border-white/10 bg-zinc-900/40 p-6 backdrop-blur-xl",
+        "shadow-[0_18px_60px_rgba(0,0,0,0.3)]",
+        className,
+      )}
+      {...props}
+    >
+      {children}
+    </div>
+  );
+}
