@@ -269,7 +269,7 @@ export function AnalysisWorkspace() {
             isDark ? "object-right-top" : "object-[right_28%]"
           }`}
         />
-        <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(255,255,255,0.4),rgba(255,255,255,0.1)_46%,transparent),linear-gradient(180deg,transparent_40%,rgba(241,245,249,0.4)_80%,#f1f5f9)] dark:bg-[linear-gradient(90deg,rgba(0,0,0,0.88),rgba(0,0,0,0.48)_46%,rgba(0,0,0,0.12)),linear-gradient(180deg,rgba(0,0,0,0.04),rgba(7,1,2,0.56)_72%,#120304)] transition-colors duration-500 pointer-events-none" />
+        <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(255,255,255,0.1),transparent_40%),linear-gradient(180deg,transparent_60%,rgba(241,245,249,0.8)_90%,#f1f5f9)] dark:bg-[linear-gradient(90deg,rgba(0,0,0,0.88),rgba(0,0,0,0.48)_46%,rgba(0,0,0,0.12)),linear-gradient(180deg,rgba(0,0,0,0.04),rgba(7,1,2,0.56)_72%,#120304)] transition-colors duration-500 pointer-events-none" />
 
         <div className="relative flex min-h-screen items-center px-6 py-20 sm:px-10 lg:px-14">
           <div className="max-w-2xl">
