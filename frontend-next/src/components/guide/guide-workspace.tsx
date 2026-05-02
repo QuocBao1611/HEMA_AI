@@ -83,7 +83,7 @@ export function GuideWorkspace() {
               <Button size="lg">Bắt đầu phân tích</Button>
             </Link>
             <Link href="/compare">
-              <Button size="lg" variant="secondary">So sánh Model</Button>
+              <Button size="lg" variant="secondary" className="text-slate-900 dark:text-white border border-slate-200 dark:border-white/10">So sánh Model</Button>
             </Link>
           </div>
         </div>
