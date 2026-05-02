@@ -106,18 +106,21 @@ export function RevealNavbar() {
         {/* Desktop nav links */}
         <div className="hidden items-center gap-8 md:flex">
           {navLinks.map((link) => {
-            const isActive = pathname === link.href;
+            const isActive = link.href === "/" ? pathname === "/" : pathname?.startsWith(link.href);
             return (
               <Link
                 key={link.href}
                 href={link.href}
-                className={`text-sm font-semibold transition-colors ${
+                className={`relative text-sm font-semibold transition-colors py-1 ${
                   isActive
                     ? "text-red-600 dark:text-red-400"
                     : "text-slate-600 hover:text-red-600 dark:text-slate-300 dark:hover:text-white"
                 }`}
               >
                 {link.label}
+                {isActive && (
+                  <span className="absolute inset-x-0 -bottom-1 h-[2px] rounded-full bg-red-600 dark:bg-red-400" />
+                )}
               </Link>
             );
           })}
