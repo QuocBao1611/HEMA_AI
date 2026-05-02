@@ -92,7 +92,7 @@ function StatusCard({
 }) {
   return (
     <article className="group relative overflow-hidden rounded-lg border border-black/10 dark:border-white/10 bg-white/50 dark:bg-white/[0.055] p-5 backdrop-blur-md transition hover:border-red-400/35">
-      <div className="absolute right-0 top-0 h-24 w-24 bg-red-500/10 blur-3xl transition group-hover:bg-red-500/18" />
+      <div className="absolute right-0 top-0 h-24 w-24 bg-red-500/0 dark:bg-red-500/10 blur-3xl transition group-hover:bg-red-500/5 dark:group-hover:bg-red-500/18" />
       <div className="relative">
         <div className="mb-5 flex h-10 w-10 items-center justify-center rounded-md border border-black/10 dark:border-white/10 bg-slate-50 dark:bg-white/8 text-slate-700 dark:text-zinc-300 transition group-hover:text-red-600 dark:group-hover:text-red-200">
           <Icon className="h-5 w-5" />
@@ -352,7 +352,7 @@ export function AnalysisWorkspace() {
         >
           <SurfaceCard className="p-6">
             <div className="mb-4 flex items-center gap-3">
-              <div className="inline-flex rounded-2xl border border-red-400/20 bg-red-500/10 p-3 text-red-100">
+              <div className="inline-flex rounded-2xl border border-red-400/20 bg-red-50 dark:bg-red-500/10 p-3 text-red-600 dark:text-red-100">
                 <UploadCloud className="h-5 w-5" />
               </div>
               <div>
@@ -396,7 +396,7 @@ export function AnalysisWorkspace() {
                 </div>
               ) : (
                 <div className="flex min-h-[280px] flex-col items-center justify-center text-center">
-                  <div className="mb-4 inline-flex rounded-3xl border border-red-400/20 bg-red-500/10 p-4 text-red-100">
+                  <div className="mb-4 inline-flex rounded-3xl border border-red-400/20 bg-red-50 dark:bg-red-500/10 p-4 text-red-600 dark:text-red-100">
                     <FileImage className="h-7 w-7" />
                   </div>
                   <h3 className="text-xl font-semibold text-slate-900 dark:text-white">
@@ -412,7 +412,7 @@ export function AnalysisWorkspace() {
 
           <SurfaceCard className="p-6">
             <div className="mb-5 flex items-center gap-3">
-              <div className="inline-flex rounded-2xl border border-red-400/20 bg-red-500/10 p-3 text-red-100">
+              <div className="inline-flex rounded-2xl border border-red-400/20 bg-red-50 dark:bg-red-500/10 p-3 text-red-600 dark:text-red-100">
                 <FlaskConical className="h-5 w-5" />
               </div>
               <div>
@@ -590,7 +590,7 @@ export function AnalysisWorkspace() {
             {result.mode === "analyze" && previewUrl && result.region_predictions?.length ? (
               <SurfaceCard className="p-6">
                 <div className="mb-5 flex items-center gap-3">
-                  <div className="inline-flex rounded-2xl border border-red-400/20 bg-red-500/10 p-3 text-red-100">
+                  <div className="inline-flex rounded-2xl border border-red-400/20 bg-red-50 dark:bg-red-500/10 p-3 text-red-600 dark:text-red-100">
                     <Microscope className="h-5 w-5" />
                   </div>
                   <div>
