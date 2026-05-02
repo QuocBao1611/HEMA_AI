@@ -8,10 +8,10 @@ import { useThemeStore } from "@/stores/theme-store";
 import { useMutation } from "@tanstack/react-query";
 import { useForm, useWatch } from "react-hook-form";
 import { useDropzone } from "react-dropzone";
-import {
   Activity,
   ArrowRight,
   BrainCircuit,
+  ChevronDown,
   Cpu,
   Database,
   Download,
@@ -423,16 +423,19 @@ export function AnalysisWorkspace() {
             <div className="space-y-4">
               <label className="block space-y-2">
                 <span className="text-sm font-medium text-slate-800 dark:text-slate-200">Mô hình AI</span>
-                <select
-                  className="h-12 w-full rounded-2xl border border-black/10 dark:border-white/10 bg-slate-50 dark:bg-slate-950/60 px-4 text-sm text-slate-900 dark:text-white outline-none transition focus:border-red-300/70"
-                  {...form.register("model_id")}
-                >
-                  {availableModels.map((model) => (
-                    <option key={model.model_id} value={model.model_id}>
-                      {model.display_name}
-                    </option>
-                  ))}
-                </select>
+                <div className="relative">
+                  <select
+                    className="h-12 w-full appearance-none rounded-2xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-slate-950/60 px-4 pr-10 text-sm font-medium text-slate-900 dark:text-white shadow-sm outline-none transition-all hover:border-red-300 focus:border-red-500 focus:ring-2 focus:ring-red-500/20 dark:hover:border-white/20 dark:focus:border-red-400 cursor-pointer"
+                    {...form.register("model_id")}
+                  >
+                    {availableModels.map((model) => (
+                      <option key={model.model_id} value={model.model_id}>
+                        {model.display_name}
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-400 pointer-events-none" />
+                </div>
               </label>
 
               <label className="block space-y-2">
@@ -442,7 +445,7 @@ export function AnalysisWorkspace() {
                   step="0.05"
                   min="0"
                   max="1"
-                  className="h-12 w-full rounded-2xl border border-black/10 dark:border-white/10 bg-slate-50 dark:bg-slate-950/60 px-4 text-sm text-slate-900 dark:text-white outline-none transition focus:border-red-300/70"
+                  className="h-12 w-full rounded-2xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-slate-950/60 px-4 text-sm font-medium text-slate-900 dark:text-white shadow-sm outline-none transition-all hover:border-red-300 focus:border-red-500 focus:ring-2 focus:ring-red-500/20 dark:hover:border-white/20 dark:focus:border-red-400"
                   {...form.register("confidence_threshold", { valueAsNumber: true })}
                 />
               </label>
@@ -453,7 +456,7 @@ export function AnalysisWorkspace() {
                   type="number"
                   min="1"
                   max="2000"
-                  className="h-12 w-full rounded-2xl border border-black/10 dark:border-white/10 bg-slate-50 dark:bg-slate-950/60 px-4 text-sm text-slate-900 dark:text-white outline-none transition focus:border-red-300/70"
+                  className="h-12 w-full rounded-2xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-slate-950/60 px-4 text-sm font-medium text-slate-900 dark:text-white shadow-sm outline-none transition-all hover:border-red-300 focus:border-red-500 focus:ring-2 focus:ring-red-500/20 dark:hover:border-white/20 dark:focus:border-red-400"
                   {...form.register("max_detections", { valueAsNumber: true })}
                 />
               </label>
@@ -465,7 +468,7 @@ export function AnalysisWorkspace() {
                   step="0.05"
                   min="0"
                   max="1"
-                  className="h-12 w-full rounded-2xl border border-black/10 dark:border-white/10 bg-slate-50 dark:bg-slate-950/60 px-4 text-sm text-slate-900 dark:text-white outline-none transition focus:border-red-300/70"
+                  className="h-12 w-full rounded-2xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-slate-950/60 px-4 text-sm font-medium text-slate-900 dark:text-white shadow-sm outline-none transition-all hover:border-red-300 focus:border-red-500 focus:ring-2 focus:ring-red-500/20 dark:hover:border-white/20 dark:focus:border-red-400"
                   {...form.register("padding_ratio", { valueAsNumber: true })}
                 />
               </label>
@@ -476,7 +479,7 @@ export function AnalysisWorkspace() {
                   type="number"
                   min="16"
                   max="200000"
-                  className="h-12 w-full rounded-2xl border border-black/10 dark:border-white/10 bg-slate-50 dark:bg-slate-950/60 px-4 text-sm text-slate-900 dark:text-white outline-none transition focus:border-red-300/70"
+                  className="h-12 w-full rounded-2xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-slate-950/60 px-4 text-sm font-medium text-slate-900 dark:text-white shadow-sm outline-none transition-all hover:border-red-300 focus:border-red-500 focus:ring-2 focus:ring-red-500/20 dark:hover:border-white/20 dark:focus:border-red-400"
                   {...form.register("min_component_area", { valueAsNumber: true })}
                 />
               </label>
