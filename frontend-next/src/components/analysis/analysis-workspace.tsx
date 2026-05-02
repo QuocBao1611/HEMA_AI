@@ -422,7 +422,7 @@ export function AnalysisWorkspace() {
 
             <div className="space-y-4">
               <label className="block space-y-2">
-                <span className="text-sm font-medium text-slate-800 dark:text-slate-200">Model AI</span>
+                <span className="text-sm font-medium text-slate-800 dark:text-slate-200">Mô hình AI</span>
                 <select
                   className="h-12 w-full rounded-2xl border border-black/10 dark:border-white/10 bg-slate-50 dark:bg-slate-950/60 px-4 text-sm text-slate-900 dark:text-white outline-none transition focus:border-red-300/70"
                   {...form.register("model_id")}
@@ -459,7 +459,7 @@ export function AnalysisWorkspace() {
               </label>
 
               <label className="block space-y-2">
-                <span className="text-sm font-medium text-slate-800 dark:text-slate-200">Padding ratio</span>
+                <span className="text-sm font-medium text-slate-800 dark:text-slate-200">Tỷ lệ viền đệm (Padding)</span>
                 <input
                   type="number"
                   step="0.05"
@@ -471,7 +471,7 @@ export function AnalysisWorkspace() {
               </label>
 
               <label className="block space-y-2">
-                <span className="text-sm font-medium text-slate-800 dark:text-slate-200">Min component area</span>
+                <span className="text-sm font-medium text-slate-800 dark:text-slate-200">Kích thước tối thiểu (Lọc bụi)</span>
                 <input
                   type="number"
                   min="16"
