@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
 
@@ -12,6 +13,7 @@ const navLinks = [
 ];
 
 export function RevealNavbar() {
+  const pathname = usePathname();
   const [visible, setVisible] = useState(true);
   const hideTimer = useRef<number | null>(null);
   const pointerInside = useRef(false);
@@ -103,15 +105,22 @@ export function RevealNavbar() {
 
         {/* Desktop nav links */}
         <div className="hidden items-center gap-8 md:flex">
-          {navLinks.map((link) => (
-            <Link
-              key={link.href}
-              href={link.href}
-              className="text-sm font-medium transition text-slate-900 hover:text-red-600 dark:text-zinc-300 dark:hover:text-white"
-            >
-              {link.label}
-            </Link>
-          ))}
+          {navLinks.map((link) => {
+            const isActive = pathname === link.href;
+            return (
+              <Link
+                key={link.href}
+                href={link.href}
+                className={`text-sm font-semibold transition-colors ${
+                  isActive
+                    ? "text-red-600 dark:text-red-400"
+                    : "text-slate-600 hover:text-red-600 dark:text-slate-300 dark:hover:text-white"
+                }`}
+              >
+                {link.label}
+              </Link>
+            );
+          })}
         </div>
 
         {/* Right controls */}
