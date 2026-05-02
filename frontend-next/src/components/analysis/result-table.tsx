@@ -9,7 +9,7 @@ type ResultTableProps = {
 export function ResultTable({ rows, emptyMessage }: ResultTableProps) {
   if (!rows.length) {
     return (
-      <div className="rounded-[22px] border border-dashed border-white/10 bg-slate-950/30 px-4 py-10 text-center text-sm text-slate-400">
+      <div className="rounded-[22px] border border-dashed border-black/10 dark:border-white/10 bg-slate-50 dark:bg-slate-950/30 px-4 py-10 text-center text-sm text-slate-500 dark:text-slate-400">
         {emptyMessage}
       </div>
     );
@@ -18,24 +18,24 @@ export function ResultTable({ rows, emptyMessage }: ResultTableProps) {
   const maxRatio = Math.max(...rows.map((row) => Number(row.ratio || 0)), 0.0001);
 
   return (
-    <div className="overflow-hidden rounded-[24px] border border-white/8">
-      <div className="grid grid-cols-[minmax(0,1.4fr)_110px_140px_140px] gap-4 border-b border-white/8 bg-white/[0.04] px-4 py-3 text-xs font-bold uppercase tracking-[0.24em] text-slate-400">
+    <div className="overflow-hidden rounded-[24px] border border-black/5 dark:border-white/8">
+      <div className="grid grid-cols-[minmax(0,1.4fr)_110px_140px_140px] gap-4 border-b border-black/5 dark:border-white/8 bg-slate-100/50 dark:bg-white/[0.04] px-4 py-3 text-xs font-bold uppercase tracking-[0.24em] text-slate-500 dark:text-slate-400">
         <span>Loại tế bào</span>
         <span>Số lượng</span>
         <span>Tỷ lệ</span>
         <span>Tin cậy TB</span>
       </div>
 
-      <div className="divide-y divide-white/8 bg-slate-950/28">
+      <div className="divide-y divide-black/5 dark:divide-white/8 bg-slate-50/50 dark:bg-slate-950/28">
         {rows.map((row) => (
           <div
             key={`${row.label}-${row.class_index ?? row.label}`}
-            className="grid grid-cols-[minmax(0,1.4fr)_110px_140px_140px] gap-4 px-4 py-4 text-sm text-slate-200"
+            className="grid grid-cols-[minmax(0,1.4fr)_110px_140px_140px] gap-4 px-4 py-4 text-sm text-slate-800 dark:text-slate-200"
           >
             <div>
-              <div className="font-semibold text-white">{row.label}</div>
+              <div className="font-semibold text-slate-900 dark:text-white">{row.label}</div>
               {row.member_labels?.length ? (
-                <div className="mt-1 text-xs text-slate-400">
+                <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                   {row.member_labels.join(", ")}
                 </div>
               ) : null}
@@ -45,7 +45,7 @@ export function ResultTable({ rows, emptyMessage }: ResultTableProps) {
 
             <div>
               <div>{formatPercent(row.ratio)}</div>
-              <div className="mt-2 h-1.5 rounded-full bg-white/6">
+              <div className="mt-2 h-1.5 rounded-full bg-slate-200 dark:bg-white/6">
                 <div
                   className="h-1.5 rounded-full bg-[linear-gradient(90deg,#be123c,#ef4444)]"
                   style={{

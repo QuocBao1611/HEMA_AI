@@ -11,13 +11,6 @@
     "best_model_v2.keras": {
       "display_name": "Best Model V2 (ResNet50)",
       "preprocessing": "resnet50"
-    },
-    "best (9).pt": {
-      "model_id": "best9",
-      "display_name": "Best9 YOLO",
-      "preprocessing": "yolo_classify",
-      "input_shape": [224, 224, 3],
-      "num_classes": 14
     }
   }
 }

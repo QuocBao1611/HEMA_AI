@@ -9,7 +9,6 @@ from backend.app.core.config import settings
 from backend.app.core.paths import DATA_DIR
 from backend.app.core.security import sanitize_error_message
 
-
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 _connect_args = {"check_same_thread": False} if settings.database_url.startswith("sqlite") else {}
 

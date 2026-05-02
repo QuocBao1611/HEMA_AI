@@ -3,7 +3,7 @@ import pytest
 
 async def _login(client, username: str, password: str):
     response = await client.post(
-        "/auth/login",
+        "/api/v1/auth/login",
         data={"username": username, "password": password},
         headers={"Content-Type": "application/x-www-form-urlencoded"},
     )
@@ -14,7 +14,7 @@ async def _login(client, username: str, password: str):
 @pytest.mark.asyncio
 async def test_predict_accepts_valid_image(client, image_bytes):
     response = await client.post(
-        "/predict",
+        "/api/v1/predict",
         files={"file": ("sample.png", image_bytes, "image/png")},
     )
 
@@ -37,7 +37,7 @@ async def test_root_reports_api_mode(client):
 @pytest.mark.asyncio
 async def test_predict_rejects_non_image_content_type(client):
     response = await client.post(
-        "/predict",
+        "/api/v1/predict",
         files={"file": ("note.txt", b"hello", "text/plain")},
     )
 
@@ -48,7 +48,7 @@ async def test_predict_rejects_non_image_content_type(client):
 @pytest.mark.asyncio
 async def test_predict_rejects_invalid_magic_bytes(client):
     response = await client.post(
-        "/predict",
+        "/api/v1/predict",
         files={"file": ("fake.png", b"not-a-real-image", "image/png")},
     )
 
@@ -60,13 +60,13 @@ async def test_predict_rejects_invalid_magic_bytes(client):
 async def test_predict_rate_limit_blocks_after_tenth_request(client, image_bytes):
     for _ in range(10):
         response = await client.post(
-            "/predict",
+            "/api/v1/predict",
             files={"file": ("sample.png", image_bytes, "image/png")},
         )
         assert response.status_code == 200
 
     blocked = await client.post(
-        "/predict",
+        "/api/v1/predict",
         files={"file": ("sample.png", image_bytes, "image/png")},
     )
 
@@ -77,7 +77,7 @@ async def test_predict_rate_limit_blocks_after_tenth_request(client, image_bytes
 @pytest.mark.asyncio
 async def test_analyze_grid_returns_summary_payload(client, image_bytes):
     response = await client.post(
-        "/analyze-grid",
+        "/api/v1/analyze-grid",
         files={"file": ("sample.png", image_bytes, "image/png")},
         data={
             "confidence_threshold": "0.6",
@@ -99,7 +99,7 @@ async def test_analyze_grid_returns_summary_payload(client, image_bytes):
 @pytest.mark.asyncio
 async def test_analyze_grid_rejects_too_high_overlap_ratio(client, image_bytes):
     response = await client.post(
-        "/analyze-grid",
+        "/api/v1/analyze-grid",
         files={"file": ("sample.png", image_bytes, "image/png")},
         data={"overlap_ratio": "0.95"},
     )
@@ -157,7 +157,7 @@ async def test_auth_login_and_me_returns_user_profile(client):
     token = await _login(client, "admin", "admin123")
 
     response = await client.get(
-        "/auth/me",
+        "/api/v1/auth/me",
         headers={"Authorization": f"Bearer {token}"},
     )
 
@@ -172,7 +172,7 @@ async def test_admin_route_blocks_non_admin_user(client):
     token = await _login(client, "user", "user123")
 
     response = await client.get(
-        "/admin/models",
+        "/api/v1/admin/models",
         headers={"Authorization": f"Bearer {token}"},
     )
 
@@ -184,7 +184,7 @@ async def test_admin_route_allows_admin_and_returns_models(client):
     token = await _login(client, "admin", "admin123")
 
     response = await client.get(
-        "/admin/models",
+        "/api/v1/admin/models",
         headers={"Authorization": f"Bearer {token}"},
     )
 
@@ -196,7 +196,7 @@ async def test_admin_route_allows_admin_and_returns_models(client):
 
 @pytest.mark.asyncio
 async def test_history_detail_returns_result_payload(client):
-    response = await client.get("/history/77")
+    response = await client.get("/api/v1/history/77")
 
     assert response.status_code == 200
     payload = response.json()

@@ -21,8 +21,7 @@ from backend.app.services.persistence_service import (
     save_label_configuration,
 )
 
-
-router = APIRouter(prefix="/admin", tags=["admin"])
+router = APIRouter(prefix="/api/v1/admin", tags=["admin"])
 
 
 async def check_admin_role(current_user=Depends(get_current_user)):

@@ -5,6 +5,7 @@ from pathlib import Path
 
 from backend.app.core.config import settings
 
+
 def setup_logging() -> None:
     # Create logs directory if it doesn't exist
     log_dir = Path("logs")

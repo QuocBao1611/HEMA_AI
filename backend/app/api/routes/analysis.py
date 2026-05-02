@@ -1,6 +1,6 @@
+import asyncio
 from typing import Any
 
-import asyncio
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
 
@@ -20,6 +20,7 @@ from backend.app.services.analysis_service import (
     normalize_probability_value,
     run_model_comparison,
     run_slide_count_analysis,
+    run_yolo_unified_analysis,
     summarize_grid_analysis,
 )
 from backend.app.services.classifier_service import (
@@ -31,8 +32,7 @@ from backend.app.services.classifier_service import (
 )
 from backend.app.services.persistence_service import record_analysis
 
-
-router = APIRouter(tags=["analysis"])
+router = APIRouter(prefix="/api/v1", tags=["analysis"])
 
 logger = get_logger("analysis_routes")
 inference_semaphore = asyncio.Semaphore(2)
@@ -67,6 +67,28 @@ async def _run_slide_analysis(
     )
 
     logger.info("Starting full analysis for %s", safe_filename(file.filename))
+
+    # Best9 is a unified YOLO detect+classify model — bypass the standard pipeline
+    if str(model_id or "").strip() == "best9":
+        async with inference_semaphore:
+            def _run_unified() -> dict[str, Any]:
+                return run_yolo_unified_analysis(
+                    image,
+                    filename=file.filename,
+                    confidence_threshold=normalized_threshold,
+                    max_detections=normalized_max_detections,
+                )
+            result = await run_in_threadpool(_run_unified)
+        record_analysis(
+            result,
+            {
+                "model_id": "best9",
+                "confidence_threshold": normalized_threshold,
+                "max_detections": normalized_max_detections,
+            },
+        )
+        return result
+
     async with inference_semaphore:
         classifier = get_classifier(model_id)
 

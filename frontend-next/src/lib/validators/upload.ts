@@ -2,15 +2,15 @@ import { MAX_UPLOAD_SIZE_BYTES } from "@/lib/constants/analysis";
 
 export function validateImageFile(file: File | null | undefined) {
   if (!file) {
-    return "Vui long chon anh truoc khi phan tich.";
+    return "Vui lòng chọn ảnh trước khi phân tích.";
   }
 
   if (!file.type.startsWith("image/")) {
-    return "Chi ho tro file anh JPG, PNG, JPEG hoac dinh dang image hop le.";
+    return "Chỉ hỗ trợ file ảnh JPG, PNG, JPEG hoặc định dạng ảnh hợp lệ.";
   }
 
   if (file.size > MAX_UPLOAD_SIZE_BYTES) {
-    return "Tep vuot qua gioi han 10MB.";
+    return "Tệp vượt quá giới hạn 10MB.";
   }
 
   return null;

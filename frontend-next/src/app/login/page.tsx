@@ -14,8 +14,8 @@ import { useAuthStore } from "@/stores/auth-store";
 import { getMe, login } from "@/lib/api/auth";
 
 const loginSchema = z.object({
-  username: z.string().min(1, "Vui long nhap ten dang nhap"),
-  password: z.string().min(1, "Vui long nhap mat khau"),
+  username: z.string().min(1, "Vui lòng nhập tên đăng nhập"),
+  password: z.string().min(1, "Vui lòng nhập mật khẩu"),
 });
 
 type LoginFormValues = z.infer<typeof loginSchema>;
@@ -46,12 +46,12 @@ export default function LoginPage() {
       const userData = await getMe();
       setAuth(tokenData.access_token, userData);
 
-      toast.success("Dang nhap thanh cong");
+      toast.success("Đăng nhập thành công");
       router.replace("/");
       router.refresh();
     } catch (error) {
       console.error("[Login Error]", error);
-      toast.error(error instanceof Error ? error.message : "Dang nhap that bai");
+      toast.error(error instanceof Error ? error.message : "Đăng nhập thất bại");
     } finally {
       setIsLoading(false);
     }
@@ -64,9 +64,9 @@ export default function LoginPage() {
           <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-orange-500/10 text-orange-400">
             <LogIn size={24} />
           </div>
-          <h1 className="text-2xl font-bold text-white">Dang nhap HemaVision</h1>
+          <h1 className="text-2xl font-bold text-white">Đăng nhập HemaVision</h1>
           <p className="mt-2 text-sm text-slate-400">
-            Truy cap he thong phan tich te bao mau AI
+            Truy cập hệ thống phân tích tế bào máu AI
           </p>
         </div>
 
@@ -79,7 +79,7 @@ export default function LoginPage() {
           className="space-y-5"
         >
           <div className="space-y-2">
-            <label className="text-sm font-medium text-slate-300">Ten dang nhap</label>
+            <label className="text-sm font-medium text-slate-300">Tên đăng nhập</label>
             <input
               {...form.register("username")}
               className="flex h-11 w-full rounded-xl border border-slate-800 bg-slate-900/50 px-4 py-2 text-sm text-white placeholder:text-slate-600 focus:border-orange-500/50 focus:outline-none focus:ring-2 focus:ring-orange-500/20"
@@ -92,7 +92,7 @@ export default function LoginPage() {
           </div>
 
           <div className="space-y-2">
-            <label className="text-sm font-medium text-slate-300">Mat khau</label>
+            <label className="text-sm font-medium text-slate-300">Mật khẩu</label>
             <input
               {...form.register("password")}
               type="password"
@@ -109,16 +109,16 @@ export default function LoginPage() {
             {isLoading ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Dang kiem tra...
+                Đang kiểm tra...
               </>
             ) : (
-              "Dang nhap"
+              "Đăng nhập"
             )}
           </Button>
 
           <div className="mt-4 text-center">
             <p className="text-xs text-slate-500">
-              Mac dinh: <code className="text-slate-400">admin</code> /{" "}
+              Mặc định: <code className="text-slate-400">admin</code> /{" "}
               <code className="text-slate-400">admin123</code>
             </p>
           </div>

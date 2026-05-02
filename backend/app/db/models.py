@@ -75,3 +75,11 @@ class AppSetting(Base):
     setting_key: Mapped[str] = mapped_column(String(100), unique=True, index=True)
     setting_value: Mapped[dict] = mapped_column(JSON)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now, onupdate=_utc_now)
+
+
+class RevokedToken(Base):
+    __tablename__ = "revoked_tokens"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    jti: Mapped[str] = mapped_column(String(120), unique=True, index=True)
+    revoked_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now)

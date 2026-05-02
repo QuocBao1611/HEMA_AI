@@ -28,7 +28,7 @@ function drawHeader(doc: jsPDF, title: string, createdAt?: string) {
   doc.setFontSize(18);
   doc.text(title, 14, 18);
   doc.setFontSize(10);
-  doc.text(`Generated: ${createdAt || new Date().toLocaleString("vi-VN")}`, 14, 26);
+  doc.text(`Thời gian tạo: ${createdAt || new Date().toLocaleString("vi-VN")}`, 14, 26);
 }
 
 function save(doc: jsPDF, filename: string) {
@@ -60,7 +60,7 @@ export function exportAnalysisReport({
 
   autoTable(doc, {
     startY: 34,
-    head: [["Field", "Value"]],
+    head: [["Trường", "Giá trị"]],
     body: baseRows,
     theme: "grid",
   });
@@ -71,7 +71,7 @@ export function exportAnalysisReport({
       startY: (doc as jsPDF & { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY
         ? (doc as jsPDF & { lastAutoTable?: { finalY: number } }).lastAutoTable!.finalY + 8
         : 54,
-      head: [["Label", "Confidence"]],
+      head: [["Nhãn", "Độ tin cậy"]],
       body: payload.predictions.map((item) => [
         item.label,
         formatPercent(item.confidence),
@@ -87,7 +87,7 @@ export function exportAnalysisReport({
       startY: (doc as jsPDF & { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY
         ? (doc as jsPDF & { lastAutoTable?: { finalY: number } }).lastAutoTable!.finalY + 8
         : 54,
-      head: [["Model", "Detected", "Classified", "Avg confidence", "Top group"]],
+      head: [["Mô hình", "Phát hiện", "Phân loại", "Tin cậy TB", "Nhóm trội"]],
       body: payload.comparison_rows.map((row) => [
         row.display_name,
         String(row.detected_cell_count),
@@ -106,20 +106,20 @@ export function exportAnalysisReport({
       startY: (doc as jsPDF & { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY
         ? (doc as jsPDF & { lastAutoTable?: { finalY: number } }).lastAutoTable!.finalY + 8
         : 54,
-      head: [["Metric", "Value"]],
+      head: [["Chỉ số", "Giá trị"]],
       body: [
-        ["Detected cells", String(payload.detected_cell_count)],
-        ["Classified cells", String(payload.classified_cell_count)],
-        ["Estimated total", String(payload.estimated_total_cells)],
-        ["Average confidence", formatPercent(payload.average_confidence)],
-        ["Dominant label", payload.dominant_cell_type?.label || "-"],
+        ["Tế bào phát hiện", String(payload.detected_cell_count)],
+        ["Tế bào phân loại", String(payload.classified_cell_count)],
+        ["Tổng cộng ước tính", String(payload.estimated_total_cells)],
+        ["Độ tin cậy trung bình", formatPercent(payload.average_confidence)],
+        ["Nhãn trội", payload.dominant_cell_type?.label || "-"],
       ],
       theme: "grid",
     });
 
     autoTable(doc, {
       startY: (doc as jsPDF & { lastAutoTable?: { finalY: number } }).lastAutoTable!.finalY + 8,
-      head: [["Label", "Count", "Ratio", "Avg confidence"]],
+      head: [["Nhãn", "Số lượng", "Tỷ lệ", "Tin cậy TB"]],
       body: payload.estimated_counts.map((row) => [
         row.label,
         String(row.count),
@@ -133,7 +133,7 @@ export function exportAnalysisReport({
     if (flags.length) {
       autoTable(doc, {
         startY: (doc as jsPDF & { lastAutoTable?: { finalY: number } }).lastAutoTable!.finalY + 8,
-        head: [["Severity", "Title", "Detail", "Action"]],
+        head: [["Mức độ", "Tiêu đề", "Chi tiết", "Hành động"]],
         body: flags.map((flag) => [
           flag.severity,
           flag.title,

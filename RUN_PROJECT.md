@@ -1,104 +1,95 @@
 # Chạy dự án HemaVision AI
 
-Tài liệu này là đường chạy gọn cho máy dev Windows. Mặc định dự án dùng SQLite nên không cần mở XAMPP/MySQL.
+## ▶️ Cách chạy nhanh nhất (Khuyến nghị)
 
-## 1. Chuẩn bị một lần
+Double-click vào file:
 
-Backend:
-
-```powershell
-.venv\Scripts\python -m pip install -r requirements.txt
 ```
-
-Frontend:
-
-```powershell
-cd frontend-next
-npm install
-cd ..
-```
-
-File `.env` mặc định:
-
-```env
-DATABASE_URL=sqlite:///./data/hemavision.sqlite3
-DATABASE_AUTO_CREATE=true
-```
-
-Khi backend khởi động, file database sẽ tự được tạo ở:
-
-```text
-data/hemavision.sqlite3
-```
-
-## 2. Chạy nhanh toàn bộ app
-
-Từ thư mục gốc dự án:
-
-```bat
 start_app.bat
 ```
 
-Script này mở 2 cửa sổ:
+Script tự động làm tất cả:
+1. Kiểm tra `.venv` — tạo nếu chưa có
+2. Cài Python dependencies (`requirements.txt`) nếu thiếu
+3. Cài Node.js dependencies (`npm install`) nếu thiếu
+4. Chạy Alembic database migrations
+5. Giải phóng port 8000 và 3000 nếu đang bị chiếm
+6. Khởi động **Backend** trong cửa sổ riêng (xanh)
+7. Khởi động **Frontend** trong cửa sổ riêng (vàng)
+8. Tự mở trình duyệt tại `http://localhost:3000`
 
-- Backend: http://127.0.0.1:8000
-- Frontend: http://127.0.0.1:3000
+---
 
-Tài khoản mặc định:
+## 🔗 Địa chỉ truy cập
 
-```text
-admin / admin123
-```
+| Dịch vụ | URL |
+|---|---|
+| Frontend | http://localhost:3000 |
+| Backend API | http://127.0.0.1:8000 |
+| API Docs (Swagger) | http://127.0.0.1:8000/docs |
 
-## 3. Chạy từng phần
+**Tài khoản mặc định:** `admin` / `admin123`
 
-Backend:
+---
 
+## 🛠️ Chạy từng phần (nếu cần debug riêng)
+
+**Backend:**
 ```bat
 start_server.bat
 ```
 
-Frontend:
-
+**Frontend:**
 ```bat
 start_frontend.bat
 ```
 
-Nếu PowerShell chặn `npm`, dùng trực tiếp:
+---
+
+## 📦 Chuẩn bị thủ công (lần đầu tiên)
+
+Nếu `start_app.bat` báo lỗi, chuẩn bị thủ công:
 
 ```powershell
+# 1. Tạo virtual environment
+python -m venv .venv
+
+# 2. Cài Python packages
+.venv\Scripts\python -m pip install -r requirements.txt
+
+# 3. Cài Node packages
 cd frontend-next
-npm.cmd run dev
+npm install
+cd ..
+
+# 4. Chạy database migrations
+.venv\Scripts\alembic upgrade head
 ```
 
-## 4. Kiểm tra nhanh
+---
 
-Backend tests:
+## ✅ Kiểm tra hệ thống
 
 ```powershell
+# Backend tests (phải pass >= 27 tests)
 .venv\Scripts\python -m pytest -q
-```
 
-Frontend:
-
-```powershell
+# Frontend lint + typecheck
 cd frontend-next
 npm.cmd run lint
 npm.cmd run typecheck
 ```
 
-## 5. Nếu muốn dùng MySQL lại
+---
 
-Đổi dòng này trong `.env`:
+## 🗄️ Database
 
+Mặc định dùng **SQLite** — không cần cài MySQL hay XAMPP.
+
+Database file: `data/hemavision.sqlite3` (tự tạo khi khởi động lần đầu)
+
+Nếu muốn dùng MySQL:
 ```env
-DATABASE_URL=mysql+pymysql://root:@127.0.0.1:3306/testmodel_web?charset=utf8mb4
+# Thay dòng này trong .env
+DATABASE_URL=mysql+pymysql://root:@127.0.0.1:3306/hemavision?charset=utf8mb4
 ```
-
-Sau đó khởi tạo database:
-
-```powershell
-mysql -u root < database/init_mysql.sql
-```
-
-SQLite phù hợp để chạy nhanh khi dev/demo. MySQL vẫn phù hợp hơn nếu cần nhiều máy cùng truy cập hoặc triển khai production lâu dài.

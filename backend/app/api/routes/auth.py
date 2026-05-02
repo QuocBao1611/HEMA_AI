@@ -1,13 +1,14 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pydantic import BaseModel
 
-from backend.app.core.auth_utils import create_access_token, decode_access_token, verify_password
-from backend.app.services.persistence_service import get_user_by_username
+from backend.app.core.auth_utils import create_access_token, decode_access_token, verify_password, validate_password_policy, get_password_hash
+from backend.app.core.rate_limit import limiter
+from backend.app.services.persistence_service import get_user_by_username, is_token_revoked, revoke_token, update_user_password
 
-router = APIRouter(prefix="/auth", tags=["auth"])
+router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/v1/auth/login")
 
 class Token(BaseModel):
     access_token: str
@@ -18,20 +19,28 @@ class UserResponse(BaseModel):
     full_name: str | None
     role: str
 
+class ChangePasswordRequest(BaseModel):
+    old_password: str
+    new_password: str
+
 @router.post("/login", response_model=Token)
-async def login(form_data: OAuth2PasswordRequestForm = Depends()):
-    print(f"DEBUG: Login attempt for username: '{form_data.username}'")
+@limiter.limit("5/minute")
+async def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends()):
     user = get_user_by_username(form_data.username)
     if not user:
-        print(f"DEBUG: User '{form_data.username}' not found in DB")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Tên đăng nhập hoặc mật khẩu không đúng.",
             headers={"WWW-Authenticate": "Bearer"},
         )
     
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Tài khoản của bạn đã bị khóa.",
+        )
+    
     is_valid = verify_password(form_data.password, user.hashed_password)
-    print(f"DEBUG: Password valid for '{form_data.username}': {is_valid}")
     
     if not is_valid:
         raise HTTPException(
@@ -54,11 +63,16 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
         raise credentials_exception
     
     username: str = payload.get("sub")
-    if username is None:
+    jti: str = payload.get("jti")
+    
+    if username is None or jti is None:
+        raise credentials_exception
+        
+    if is_token_revoked(jti):
         raise credentials_exception
     
     user = get_user_by_username(username)
-    if user is None:
+    if user is None or not user.is_active:
         raise credentials_exception
     return user
 
@@ -69,3 +83,34 @@ async def read_users_me(current_user = Depends(get_current_user)):
         "full_name": current_user.full_name,
         "role": current_user.role
     }
+
+@router.post("/logout")
+async def logout(token: str = Depends(oauth2_scheme)):
+    payload = decode_access_token(token)
+    if payload and "jti" in payload:
+        revoke_token(payload["jti"])
+    return {"detail": "Đăng xuất thành công."}
+
+@router.put("/password")
+async def change_password(payload: ChangePasswordRequest, current_user = Depends(get_current_user)):
+    if not verify_password(payload.old_password, current_user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Mật khẩu cũ không chính xác."
+        )
+    
+    if not validate_password_policy(payload.new_password):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Mật khẩu mới phải có ít nhất 8 ký tự, bao gồm cả chữ và số."
+        )
+        
+    hashed = get_password_hash(payload.new_password)
+    success, error = update_user_password(current_user.username, hashed)
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=error or "Lỗi khi cập nhật mật khẩu."
+        )
+        
+    return {"detail": "Cập nhật mật khẩu thành công."}

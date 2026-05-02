@@ -4,6 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import type { ElementType } from "react";
 import { useEffect, useMemo, useState } from "react";
+import { useThemeStore } from "@/stores/theme-store";
 import { useMutation } from "@tanstack/react-query";
 import { useForm, useWatch } from "react-hook-form";
 import { useDropzone } from "react-dropzone";
@@ -69,11 +70,11 @@ function MetricChip({
   value: string;
 }) {
   return (
-    <div className="rounded-[22px] border border-white/8 bg-white/[0.04] px-4 py-4">
-      <p className="text-[11px] font-bold uppercase tracking-[0.28em] text-slate-400">
+    <div className="rounded-[22px] border border-black/5 dark:border-white/8 bg-slate-50 dark:bg-white/[0.04] px-4 py-4">
+      <p className="text-[11px] font-bold uppercase tracking-[0.28em] text-slate-500 dark:text-slate-400">
         {label}
       </p>
-      <p className="mt-2 text-lg font-semibold text-white">{value}</p>
+      <p className="mt-2 text-lg font-semibold text-slate-900 dark:text-white">{value}</p>
     </div>
   );
 }
@@ -90,18 +91,18 @@ function StatusCard({
   loading?: boolean;
 }) {
   return (
-    <article className="group relative overflow-hidden rounded-lg border border-white/10 bg-white/[0.055] p-5 backdrop-blur-md transition hover:border-red-400/35">
+    <article className="group relative overflow-hidden rounded-lg border border-black/10 dark:border-white/10 bg-white/50 dark:bg-white/[0.055] p-5 backdrop-blur-md transition hover:border-red-400/35">
       <div className="absolute right-0 top-0 h-24 w-24 bg-red-500/10 blur-3xl transition group-hover:bg-red-500/18" />
       <div className="relative">
-        <div className="mb-5 flex h-10 w-10 items-center justify-center rounded-md border border-white/10 bg-white/8 text-zinc-300 transition group-hover:text-red-200">
+        <div className="mb-5 flex h-10 w-10 items-center justify-center rounded-md border border-black/10 dark:border-white/10 bg-slate-50 dark:bg-white/8 text-slate-700 dark:text-zinc-300 transition group-hover:text-red-600 dark:group-hover:text-red-200">
           <Icon className="h-5 w-5" />
         </div>
-        <p className="text-xs font-bold uppercase tracking-[0.16em] text-white">
+        <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-900 dark:text-white">
           {label}
         </p>
-        <p className="mt-1 text-sm leading-6 text-zinc-400">{value}</p>
+        <p className="mt-1 text-sm leading-6 text-slate-600 dark:text-zinc-400">{value}</p>
         {loading ? (
-          <div className="mt-5 h-1 overflow-hidden rounded-full bg-white/8">
+          <div className="mt-5 h-1 overflow-hidden rounded-full bg-slate-200 dark:bg-white/8">
             <div className="h-full w-1/2 animate-pulse rounded-full bg-red-500/70" />
           </div>
         ) : null}
@@ -252,29 +253,33 @@ export function AnalysisWorkspace() {
     await analyzeMutation.mutateAsync(payload);
   };
 
+  const theme = useThemeStore((s) => s.theme);
+  const isDark = theme === "dark";
+
   return (
-    <div className="bg-[linear-gradient(180deg,rgba(35,4,7,0.4),rgba(8,1,2,0.95)_34%,#070101_100%)]">
-      <section className="relative min-h-[100svh] overflow-hidden border-b border-white/8">
+    <div className="bg-[linear-gradient(180deg,rgba(248,250,252,0.4),rgba(241,245,249,0.95)_34%,#f1f5f9_100%)] dark:bg-[linear-gradient(180deg,rgba(35,4,7,0.4),rgba(8,1,2,0.95)_34%,#070101_100%)] transition-colors duration-500">
+      <section className="relative min-h-screen overflow-hidden border-b border-black/8 dark:border-white/8 transition-colors duration-500">
         <Image
-          src="/images/hero-doctor-lab.png"
-          alt="Bac si huyet hoc trong phong xet nghiem hien dai"
+          src={isDark ? "/images/hero-doctor-lab.png" : "/images/hero-doctor-lab-light.png"}
+          alt="Bác sĩ huyết học trong phòng xét nghiệm hiện đại"
           fill
           priority
           sizes="100vw"
-          className="object-cover opacity-95"
+          className={`object-cover transition-opacity duration-500 ${
+            isDark ? "object-right-top" : "object-[right_28%]"
+          }`}
         />
-        <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(0,0,0,0.88),rgba(0,0,0,0.48)_46%,rgba(0,0,0,0.12)),linear-gradient(180deg,rgba(0,0,0,0.04),rgba(7,1,2,0.56)_72%,#120304)]" />
+        <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(255,255,255,0.4),rgba(255,255,255,0.1)_46%,transparent),linear-gradient(180deg,transparent_40%,rgba(241,245,249,0.4)_80%,#f1f5f9)] dark:bg-[linear-gradient(90deg,rgba(0,0,0,0.88),rgba(0,0,0,0.48)_46%,rgba(0,0,0,0.12)),linear-gradient(180deg,rgba(0,0,0,0.04),rgba(7,1,2,0.56)_72%,#120304)] transition-colors duration-500 pointer-events-none" />
 
-        <div className="relative flex min-h-[100svh] items-center px-6 py-20 sm:px-10 lg:px-14">
+        <div className="relative flex min-h-screen items-center px-6 py-20 sm:px-10 lg:px-14">
           <div className="max-w-2xl">
-            <div className="mb-5 flex items-center gap-3 text-sm font-bold uppercase tracking-[0.18em] text-red-200">
-              <span className="h-px w-9 bg-red-400/70" />
+            <div className="mb-5 flex items-center gap-3 text-sm font-bold uppercase tracking-[0.18em] text-red-600 dark:text-red-200 transition-colors duration-500">
+              <span className="h-px w-9 bg-red-500/70 dark:bg-red-400/70 transition-colors duration-500" />
               AI Huyết Học
             </div>
-            <h1 className="font-display text-4xl font-bold leading-tight tracking-tight text-white sm:text-5xl lg:text-6xl">
+            <h1 className="font-display text-4xl font-bold leading-tight tracking-tight sm:text-5xl lg:text-6xl text-slate-900 dark:text-white transition-colors duration-500">
               Hệ thống Phân tích Huyết học AI thế hệ mới
             </h1>
-
 
             <div className="mt-8 flex flex-wrap gap-3">
               <a
@@ -285,7 +290,7 @@ export function AnalysisWorkspace() {
               </a>
               <Link
                 href="/compare"
-                className="inline-flex h-11 items-center justify-center rounded-md border border-white/22 bg-black/18 px-6 text-sm font-semibold text-white backdrop-blur-md transition hover:bg-white/10"
+                className="inline-flex h-11 items-center justify-center rounded-md border px-6 text-sm font-semibold backdrop-blur-md transition border-slate-300 bg-white/60 text-slate-800 hover:bg-white/80 dark:border-white/22 dark:bg-black/18 dark:text-white dark:hover:bg-white/10"
               >
                 So sánh mô hình
               </Link>
@@ -296,7 +301,7 @@ export function AnalysisWorkspace() {
 
       <div className="space-y-12 px-6 py-12 sm:px-10 lg:px-14">
         <section>
-          <h2 className="mb-6 flex items-center gap-2 font-display text-sm font-bold uppercase tracking-[0.16em] text-zinc-200">
+          <h2 className="mb-6 flex items-center gap-2 font-display text-sm font-bold uppercase tracking-[0.16em] text-slate-800 dark:text-zinc-200">
             <ArrowRight className="h-4 w-4 text-red-300" />
             Ca phân tích
           </h2>
@@ -351,8 +356,8 @@ export function AnalysisWorkspace() {
                 <UploadCloud className="h-5 w-5" />
               </div>
               <div>
-                <h2 className="text-xl font-semibold text-white">Nạp ảnh smear</h2>
-                <p className="text-sm text-slate-300/72">
+                <h2 className="text-xl font-semibold text-slate-900 dark:text-white">Nạp ảnh smear</h2>
+                <p className="text-sm text-slate-600 dark:text-slate-300/72">
                   JPG, PNG, TIFF. Giới hạn 10MB.
                 </p>
               </div>
@@ -361,14 +366,14 @@ export function AnalysisWorkspace() {
             <div
               {...getRootProps()}
               className={`relative rounded-[28px] border border-dashed p-6 transition ${isDragActive
-                  ? "border-red-300/70 bg-red-500/10"
-                  : "border-white/12 bg-slate-950/36 hover:border-red-200/35 hover:bg-white/[0.04]"
+                  ? "border-red-300/70 bg-red-50/50 dark:bg-red-500/10"
+                  : "border-black/10 dark:border-white/12 bg-slate-50 dark:bg-slate-950/36 hover:border-red-200/35 hover:bg-slate-100 dark:hover:bg-white/[0.04]"
                 }`}
             >
               <input {...getInputProps()} />
 
               {previewUrl ? (
-                <div className="relative mx-auto max-w-[620px] overflow-hidden rounded-[24px] border border-white/10 bg-slate-950/50">
+                <div className="relative mx-auto max-w-[620px] overflow-hidden rounded-[24px] border border-black/10 dark:border-white/10 bg-slate-50 dark:bg-slate-950/50">
                   <div className="relative aspect-square w-full p-2">
                     <Image
                       src={previewUrl}
@@ -384,7 +389,7 @@ export function AnalysisWorkspace() {
                       event.stopPropagation();
                       removeFile();
                     }}
-                    className="absolute right-4 top-4 inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/14 bg-slate-950/70 text-white"
+                    className="absolute right-4 top-4 inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/14 bg-slate-50 dark:bg-slate-950/70 text-slate-900 dark:text-white"
                   >
                     <X className="h-4 w-4" />
                   </button>
@@ -394,10 +399,10 @@ export function AnalysisWorkspace() {
                   <div className="mb-4 inline-flex rounded-3xl border border-red-400/20 bg-red-500/10 p-4 text-red-100">
                     <FileImage className="h-7 w-7" />
                   </div>
-                  <h3 className="text-xl font-semibold text-white">
+                  <h3 className="text-xl font-semibold text-slate-900 dark:text-white">
                     Kéo thả ảnh vào đây hoặc nhấn để chọn
                   </h3>
-                  <p className="mt-2 max-w-md text-sm leading-6 text-slate-400">
+                  <p className="mt-2 max-w-md text-sm leading-6 text-slate-500 dark:text-slate-400">
                     Chọn ảnh để mở khóa phân tích slide và dự đoán nhanh.
                   </p>
                 </div>
@@ -411,15 +416,15 @@ export function AnalysisWorkspace() {
                 <FlaskConical className="h-5 w-5" />
               </div>
               <div>
-                <h2 className="text-xl font-semibold text-white">Thông số phân tích</h2>
+                <h2 className="text-xl font-semibold text-slate-900 dark:text-white">Thông số phân tích</h2>
               </div>
             </div>
 
             <div className="space-y-4">
               <label className="block space-y-2">
-                <span className="text-sm font-medium text-slate-200">Model AI</span>
+                <span className="text-sm font-medium text-slate-800 dark:text-slate-200">Model AI</span>
                 <select
-                  className="h-12 w-full rounded-2xl border border-white/10 bg-slate-950/60 px-4 text-sm text-white outline-none transition focus:border-red-300/70"
+                  className="h-12 w-full rounded-2xl border border-black/10 dark:border-white/10 bg-slate-50 dark:bg-slate-950/60 px-4 text-sm text-slate-900 dark:text-white outline-none transition focus:border-red-300/70"
                   {...form.register("model_id")}
                 >
                   {availableModels.map((model) => (
@@ -431,47 +436,47 @@ export function AnalysisWorkspace() {
               </label>
 
               <label className="block space-y-2">
-                <span className="text-sm font-medium text-slate-200">Ngưỡng tin cậy</span>
+                <span className="text-sm font-medium text-slate-800 dark:text-slate-200">Ngưỡng tin cậy</span>
                 <input
                   type="number"
                   step="0.05"
                   min="0"
                   max="1"
-                  className="h-12 w-full rounded-2xl border border-white/10 bg-slate-950/60 px-4 text-sm text-white outline-none transition focus:border-red-300/70"
+                  className="h-12 w-full rounded-2xl border border-black/10 dark:border-white/10 bg-slate-50 dark:bg-slate-950/60 px-4 text-sm text-slate-900 dark:text-white outline-none transition focus:border-red-300/70"
                   {...form.register("confidence_threshold", { valueAsNumber: true })}
                 />
               </label>
 
               <label className="block space-y-2">
-                <span className="text-sm font-medium text-slate-200">Giới hạn phát hiện</span>
+                <span className="text-sm font-medium text-slate-800 dark:text-slate-200">Giới hạn phát hiện</span>
                 <input
                   type="number"
                   min="1"
                   max="2000"
-                  className="h-12 w-full rounded-2xl border border-white/10 bg-slate-950/60 px-4 text-sm text-white outline-none transition focus:border-red-300/70"
+                  className="h-12 w-full rounded-2xl border border-black/10 dark:border-white/10 bg-slate-50 dark:bg-slate-950/60 px-4 text-sm text-slate-900 dark:text-white outline-none transition focus:border-red-300/70"
                   {...form.register("max_detections", { valueAsNumber: true })}
                 />
               </label>
 
               <label className="block space-y-2">
-                <span className="text-sm font-medium text-slate-200">Padding ratio</span>
+                <span className="text-sm font-medium text-slate-800 dark:text-slate-200">Padding ratio</span>
                 <input
                   type="number"
                   step="0.05"
                   min="0"
                   max="1"
-                  className="h-12 w-full rounded-2xl border border-white/10 bg-slate-950/60 px-4 text-sm text-white outline-none transition focus:border-red-300/70"
+                  className="h-12 w-full rounded-2xl border border-black/10 dark:border-white/10 bg-slate-50 dark:bg-slate-950/60 px-4 text-sm text-slate-900 dark:text-white outline-none transition focus:border-red-300/70"
                   {...form.register("padding_ratio", { valueAsNumber: true })}
                 />
               </label>
 
               <label className="block space-y-2">
-                <span className="text-sm font-medium text-slate-200">Min component area</span>
+                <span className="text-sm font-medium text-slate-800 dark:text-slate-200">Min component area</span>
                 <input
                   type="number"
                   min="16"
                   max="200000"
-                  className="h-12 w-full rounded-2xl border border-white/10 bg-slate-950/60 px-4 text-sm text-white outline-none transition focus:border-red-300/70"
+                  className="h-12 w-full rounded-2xl border border-black/10 dark:border-white/10 bg-slate-50 dark:bg-slate-950/60 px-4 text-sm text-slate-900 dark:text-white outline-none transition focus:border-red-300/70"
                   {...form.register("min_component_area", { valueAsNumber: true })}
                 />
               </label>
@@ -506,13 +511,13 @@ export function AnalysisWorkspace() {
               </Button>
             </div>
             {!selectedFile ? (
-              <p className="mt-3 text-center text-xs font-medium text-slate-400">
+              <p className="mt-3 text-center text-xs font-medium text-slate-500 dark:text-slate-400">
                 Chọn ảnh để bật các nút phân tích.
               </p>
             ) : null}
 
             <div className="hidden">
-              Đang chạy với <span className="font-semibold text-white">{currentModelName}</span>.
+              Đang chạy với <span className="font-semibold text-slate-900 dark:text-white">{currentModelName}</span>.
             </div>
           </SurfaceCard>
         </section>
@@ -525,13 +530,13 @@ export function AnalysisWorkspace() {
                   <p className="text-[11px] font-bold uppercase tracking-[0.32em] text-red-200/72">
                     Bảng kết quả
                   </p>
-                  <h2 className="mt-2 text-2xl font-semibold text-white">
+                  <h2 className="mt-2 text-2xl font-semibold text-slate-900 dark:text-white">
                     {result.mode === "predict"
                       ? `Dự đoán nhanh: ${result.label}`
                       : `${formatCount(result.classified_cell_count)} tế bào được tính`}
                   </h2>
                 </div>
-                <div className="rounded-full border border-white/10 bg-white/6 px-4 py-2 text-sm text-slate-100">
+                <div className="rounded-full border border-black/10 dark:border-white/10 bg-slate-50 dark:bg-white/6 px-4 py-2 text-sm text-slate-700 dark:text-slate-100">
                   {result.selected_model_name}
                 </div>
               </div>
@@ -589,8 +594,8 @@ export function AnalysisWorkspace() {
                     <Microscope className="h-5 w-5" />
                   </div>
                   <div>
-                    <h2 className="text-xl font-semibold text-white">Bản đồ phát hiện tế bào</h2>
-                    <p className="text-sm text-slate-300/72">
+                    <h2 className="text-xl font-semibold text-slate-900 dark:text-white">Bản đồ phát hiện tế bào</h2>
+                    <p className="text-sm text-slate-600 dark:text-slate-300/72">
                       Hộp phát hiện và nhãn phân loại trên ảnh gốc.
                     </p>
                   </div>
@@ -613,8 +618,8 @@ export function AnalysisWorkspace() {
                     <Sparkles className="h-5 w-5" />
                   </div>
                   <div>
-                    <h2 className="text-xl font-semibold text-white">Top dự đoán</h2>
-                    <p className="text-sm text-slate-300/72">
+                    <h2 className="text-xl font-semibold text-slate-900 dark:text-white">Top dự đoán</h2>
+                    <p className="text-sm text-slate-600 dark:text-slate-300/72">
                       Xếp hạng độ tin cậy từ backend `/predict`.
                     </p>
                   </div>
@@ -624,11 +629,11 @@ export function AnalysisWorkspace() {
                   {result.predictions.map((prediction) => (
                     <div
                       key={`${prediction.index}-${prediction.label}`}
-                      className="flex items-center justify-between rounded-[22px] border border-white/8 bg-white/[0.04] px-4 py-4"
+                      className="flex items-center justify-between rounded-[22px] border border-black/5 dark:border-white/8 bg-slate-50 dark:bg-white/[0.04] px-4 py-4"
                     >
                       <div>
-                        <p className="font-semibold text-white">{prediction.label}</p>
-                        <p className="text-sm text-slate-400">{prediction.raw_label}</p>
+                        <p className="font-semibold text-slate-900 dark:text-white">{prediction.label}</p>
+                        <p className="text-sm text-slate-500 dark:text-slate-400">{prediction.raw_label}</p>
                       </div>
                       <div className="text-sm font-semibold text-red-100">
                         {formatPercent(prediction.confidence)}
@@ -642,8 +647,8 @@ export function AnalysisWorkspace() {
                 <SurfaceCard className="p-6">
                   <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
                     <div>
-                      <h2 className="text-xl font-semibold text-white">Bảng kết quả</h2>
-                      <p className="text-sm text-slate-300/72">
+                      <h2 className="text-xl font-semibold text-slate-900 dark:text-white">Bảng kết quả</h2>
+                      <p className="text-sm text-slate-600 dark:text-slate-300/72">
                         Cùng một kết quả, nhiều góc nhìn: nhãn, nhóm và WBC differential.
                       </p>
                     </div>
@@ -659,8 +664,8 @@ export function AnalysisWorkspace() {
                           type="button"
                           onClick={() => setActiveTab(tab.key)}
                           className={`rounded-full px-4 py-2 text-sm font-medium transition ${activeTab === tab.key
-                              ? "bg-[linear-gradient(135deg,#be123c,#ef4444)] text-white"
-                              : "border border-white/10 bg-white/[0.04] text-slate-200 hover:bg-white/[0.08]"
+                              ? "bg-[linear-gradient(135deg,#be123c,#ef4444)] text-slate-900 dark:text-white"
+                              : "border border-black/10 dark:border-white/10 bg-slate-50 dark:bg-white/[0.04] text-slate-800 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/[0.08]"
                             }`}
                         >
                           {tab.label}

@@ -4,18 +4,17 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 
+from backend.app.core.auth_utils import get_password_hash
 from backend.app.core.config import settings
 from backend.app.db.base import Base
-from backend.app.db.models import AnalysisRecord, AppSetting, LabelConfiguration, ModelCatalog, User
+from backend.app.db.models import AnalysisRecord, AppSetting, LabelConfiguration, ModelCatalog, RevokedToken, User
 from backend.app.db.session import database_health, engine, mark_database_ready, open_session, ping_database
-from backend.app.core.auth_utils import get_password_hash
 from backend.app.services.classifier_service import (
     force_default_model,
     get_classifier,
     get_classifier_registry,
     get_default_model_id,
 )
-
 
 CLINICAL_FLAG_SETTINGS_KEY = "clinical_flag_rules"
 DEFAULT_CLINICAL_FLAG_RULES = [
@@ -182,6 +181,45 @@ def get_user_by_username(username: str) -> User | None:
             return db.execute(select(User).where(User.username == username)).scalar_one_or_none()
     except SQLAlchemyError:
         return None
+
+
+def update_user_password(username: str, hashed_password: str) -> tuple[bool, str | None]:
+    if not database_health()["ready"]:
+        return False, database_health()["last_error"]  # type: ignore[index]
+    try:
+        with open_session() as db:
+            user = db.execute(select(User).where(User.username == username)).scalar_one_or_none()
+            if not user:
+                return False, "Không tìm thấy người dùng."
+            user.hashed_password = hashed_password
+            db.commit()
+        return True, None
+    except SQLAlchemyError:
+        return False, "Không thể cập nhật mật khẩu."
+
+
+def is_token_revoked(jti: str) -> bool:
+    if not database_health()["ready"]:
+        return False
+    try:
+        with open_session() as db:
+            token = db.execute(select(RevokedToken).where(RevokedToken.jti == jti)).scalar_one_or_none()
+            return token is not None
+    except SQLAlchemyError:
+        return False
+
+
+def revoke_token(jti: str) -> tuple[bool, str | None]:
+    if not database_health()["ready"]:
+        return False, database_health()["last_error"]  # type: ignore[index]
+    try:
+        with open_session() as db:
+            if not is_token_revoked(jti):
+                db.add(RevokedToken(jti=jti))
+                db.commit()
+        return True, None
+    except SQLAlchemyError:
+        return False, "Không thể thu hồi token."
 
 
 def apply_database_label_overrides() -> tuple[bool, str | None]:

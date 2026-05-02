@@ -1,0 +1,20 @@
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+exclude = [
+    ".git",
+    ".venv",
+    "__pycache__",
+    "migrations",
+]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = ["E501", "B008", "E402", "E701", "UP038"] # Line too long, Depends(), imports not at top, multiple statements, isinstance
+
+[tool.mypy]
+python_version = "3.10"
+strict = false
+ignore_missing_imports = true
+exclude = ["migrations", ".venv", "tests"]
+disable_error_code = ["return-value", "assignment", "arg-type", "dict-item"]

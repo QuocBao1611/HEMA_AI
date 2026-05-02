@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import { persist, createJSONStorage } from "zustand/middleware";
 
 interface User {
   username: string;
@@ -49,6 +49,7 @@ export const useAuthStore = create<AuthState>()(
     }),
     {
       name: "hema-auth-storage",
+      storage: createJSONStorage(() => sessionStorage),
       onRehydrateStorage: () => (state) => {
         state?.setHydrated(true);
       },

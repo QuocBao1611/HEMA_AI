@@ -1,5 +1,5 @@
-import { CompareWorkspace } from "@/components/compare/compare-workspace";
+import { ModelComparison } from "@/components/compare/model-comparison";
 
 export default function ComparePage() {
-  return <CompareWorkspace />;
+  return <ModelComparison />;
 }

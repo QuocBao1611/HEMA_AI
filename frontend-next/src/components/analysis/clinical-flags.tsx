@@ -158,7 +158,7 @@ export function ClinicalFlags({ result, rules }: ClinicalFlagsProps) {
 
   return (
     <section className="space-y-4">
-      <div className="flex items-center gap-2 text-red-100">
+      <div className="flex items-center gap-2 text-red-600 dark:text-red-100">
         <Stethoscope className="h-4 w-4" />
         <span className="text-sm font-semibold uppercase tracking-[0.28em]">
           Cảnh báo lâm sàng
@@ -179,8 +179,8 @@ export function ClinicalFlags({ result, rules }: ClinicalFlagsProps) {
               <div
                 className={`inline-flex rounded-2xl p-2 ${
                   flag.severity === "critical"
-                    ? "bg-red-500/18 text-red-100"
-                    : "bg-red-500/14 text-red-100"
+                    ? "bg-red-500/18 text-red-600 dark:text-red-100"
+                    : "bg-red-500/14 text-red-600 dark:text-red-100"
                 }`}
               >
                 {flag.severity === "critical" ? (
@@ -190,11 +190,11 @@ export function ClinicalFlags({ result, rules }: ClinicalFlagsProps) {
                 )}
               </div>
               <div>
-                <h3 className="font-semibold text-white">{flag.title}</h3>
-                <p className="text-sm text-slate-300/80">{flag.detail}</p>
+                <h3 className="font-semibold text-slate-900 dark:text-white">{flag.title}</h3>
+                <p className="text-sm text-slate-600 dark:text-slate-300/80">{flag.detail}</p>
               </div>
             </div>
-            <p className="text-sm leading-7 text-slate-200/78">{flag.action}</p>
+            <p className="text-sm leading-7 text-slate-800 dark:text-slate-200/78">{flag.action}</p>
           </article>
         ))}
       </div>

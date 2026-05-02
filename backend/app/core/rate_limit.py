@@ -4,7 +4,6 @@ from slowapi import Limiter
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
-
 RATE_LIMIT_EXCEEDED_MESSAGE = "Bạn đã gửi quá nhiều yêu cầu. Vui lòng thử lại sau."
 
 limiter = Limiter(key_func=get_remote_address, headers_enabled=False)

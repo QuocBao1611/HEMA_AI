@@ -1,7 +1,8 @@
 import sys
+
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
+
 
 # YOLOv13 Real Layer Implementations with Adaptive Channel Logic
 class AdaHGConv(nn.Module):
@@ -95,7 +96,7 @@ class ModuleWrapper:
         if name in mappings: return mappings[name]
         if name and name[0].isupper():
             # If it's a C3/C2 variant, try to find a standard fallback
-            if name.startswith("DSC3"): return getattr(self.original, "C3k2", getattr(self.original, "C2f"))
+            if name.startswith("DSC3"): return getattr(self.original, "C3k2", self.original.C2f)
             return GenericYOLOv13Layer
         raise AttributeError(f"module {self.original.__name__} has no attribute {name}")
 
@@ -111,15 +112,19 @@ from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, Response
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from slowapi.errors import RateLimitExceeded
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
-from backend.app.api.routes.analysis import router as analysis_router
-from backend.app.api.routes.system import router as system_router
-from backend.app.api.routes.auth import router as auth_router
 from backend.app.api.routes.admin import router as admin_router
+from backend.app.api.routes.analysis import router as analysis_router
+from backend.app.api.routes.auth import router as auth_router
+from backend.app.api.routes.system import alias_router
+from backend.app.api.routes.system import router as system_router
 from backend.app.core.config import settings
-from backend.app.core.logging import setup_logging, get_logger
+from backend.app.core.logging import get_logger, setup_logging
 from backend.app.core.rate_limit import limiter, rate_limit_exceeded_handler
 from backend.app.services.analysis_service import initialize_detection_runtime
 from backend.app.services.classifier_service import initialize_classifier_registry
@@ -128,7 +133,6 @@ from backend.app.services.persistence_service import (
     initialize_database,
     sync_model_catalog,
 )
-
 
 setup_logging()
 logger = get_logger("main")
@@ -151,13 +155,31 @@ app = FastAPI(title=settings.app_name, lifespan=lifespan)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=list(settings.cors_allow_origins),
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    logger.warning(f"Validation error on {request.method} {request.url.path}: {exc.errors()}")
+    return JSONResponse(
+        status_code=422,
+        content={"detail": "Dữ liệu đầu vào không hợp lệ.", "errors": exc.errors()},
+    )
+
+@app.exception_handler(IntegrityError)
+async def integrity_exception_handler(request: Request, exc: IntegrityError):
+    logger.error(f"Database integrity error on {request.method} {request.url.path}: {exc}")
+    return JSONResponse(
+        status_code=409,
+        content={"detail": "Xung đột dữ liệu. Có thể bản ghi đã tồn tại."},
+    )
+
+@app.exception_handler(SQLAlchemyError)
+async def sqlalchemy_exception_handler(request: Request, exc: SQLAlchemyError):
+    logger.error(f"Database error on {request.method} {request.url.path}: {exc}")
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Lỗi cơ sở dữ liệu hệ thống."},
+    )
+
+
 
 import time
 
@@ -192,7 +214,23 @@ async def security_and_logging_middleware(request: Request, call_next):
     )
     return response
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:8000",
+        "http://127.0.0.1:8000",
+        *list(settings.cors_allow_origins)
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+    expose_headers=["*"],
+)
+
 app.include_router(system_router)
 app.include_router(analysis_router)
 app.include_router(auth_router)
 app.include_router(admin_router)
+app.include_router(alias_router)

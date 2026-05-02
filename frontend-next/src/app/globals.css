@@ -1,17 +1,28 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:is(.dark *));
+
 :root {
-  --background: #020617;
-  --foreground: #f8fafc;
-  --muted: #94a3b8;
-  --border: rgba(255, 255, 255, 0.1);
+  --background: #f8fafc;
+  --foreground: #0f172a;
+  --muted: #64748b;
+  --border: rgba(0, 0, 0, 0.1);
   --font-body: "Segoe UI", Arial, sans-serif;
   --font-heading: "Segoe UI", Arial, sans-serif;
+}
+
+.dark {
+  --background: #0a0a0a;
+  --foreground: #f4f4f5;
+  --muted: #a1a1aa;
+  --border: rgba(255, 255, 255, 0.08);
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-border: var(--border);
   --font-sans: var(--font-body);
   --font-display: var(--font-heading);
 }
@@ -25,14 +36,22 @@ html {
 }
 
 body {
-  background: var(--background);
+  background-color: var(--background);
   color: var(--foreground);
   font-family: var(--font-body);
+  transition: background-color 0.3s ease, color 0.3s ease;
   background-image:
-    radial-gradient(circle at top left, rgba(239, 68, 68, 0.18), transparent 26%),
-    radial-gradient(circle at 85% 18%, rgba(249, 115, 22, 0.12), transparent 18%),
-    linear-gradient(180deg, #020617 0%, #020817 42%, #030712 100%);
+    radial-gradient(circle at top left, rgba(239, 68, 68, 0.08), transparent 26%),
+    radial-gradient(circle at 85% 18%, rgba(249, 115, 22, 0.05), transparent 18%),
+    linear-gradient(180deg, #f8fafc 0%, #f1f5f9 42%, #e2e8f0 100%);
 }
+
+.dark body {
+  background-image:
+    linear-gradient(180deg, #0a0a0a 0%, #0d0d0d 50%, #080808 100%);
+}
+
+
 
 a {
   color: inherit;
@@ -44,6 +63,11 @@ button {
 }
 
 ::selection {
+  background: rgba(239, 68, 68, 0.2);
+  color: inherit;
+}
+
+.dark ::selection {
   background: rgba(251, 146, 60, 0.28);
   color: white;
 }
@@ -56,3 +80,4 @@ button {
   display: grid;
   gap: 1.5rem;
 }
+

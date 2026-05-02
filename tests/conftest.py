@@ -50,12 +50,14 @@ def app(monkeypatch):
         full_name="System Administrator",
         role="admin",
         hashed_password="hashed-admin123",
+        is_active=True,
     )
     dummy_user = SimpleNamespace(
         username="user",
         full_name="Regular User",
         role="user",
         hashed_password="hashed-user123",
+        is_active=True,
     )
     history_record = {
         "id": 77,
@@ -220,6 +222,16 @@ def app(monkeypatch):
             "admin": dummy_admin,
             "user": dummy_user,
         }.get(username),
+    )
+    monkeypatch.setattr(
+        auth_routes,
+        "is_token_revoked",
+        lambda jti: False,
+    )
+    monkeypatch.setattr(
+        auth_routes,
+        "revoke_token",
+        lambda jti: (True, None),
     )
     monkeypatch.setattr(
         auth_routes,

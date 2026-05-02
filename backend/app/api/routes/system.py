@@ -5,7 +5,12 @@ from fastapi import APIRouter, HTTPException
 from backend.app.core.config import settings
 from backend.app.db.session import database_health
 from backend.app.schemas.labels import LabelsUpdateRequest
-from backend.app.services.analysis_service import DIAGNOSTIC_GROUP_BY_LABEL
+from backend.app.services.analysis_service import (
+    BEST9_CLASS_LIST,
+    DIAGNOSTIC_GROUP_BY_LABEL,
+    is_unified_detector,
+    list_detector_models,
+)
 from backend.app.services.classifier_service import (
     get_classifier,
     get_classifier_registry,
@@ -21,8 +26,36 @@ from backend.app.services.persistence_service import (
     save_label_configuration,
 )
 
+router = APIRouter(prefix="/api/v1", tags=["system"])
 
-router = APIRouter(tags=["system"])
+# Alias router — mountable without prefix for backward compat (/, /health, /info)
+alias_router = APIRouter(tags=["system"])
+
+
+def _best9_model_entry() -> dict:
+    """Build the virtual model entry for best9 unified detector."""
+    return {
+        "model_id": "best9",
+        "display_name": "Best9 YOLO (unified)",
+        "model_path": "best (9).pt",
+        "loaded_model_path": "best (9).pt",
+        "input_shape": [640, 640, 3],
+        "num_classes": len(BEST9_CLASS_LIST),
+        "preprocessing": "yolo_detect",
+        "unified": True,
+        "note": "Unified detect+classify — không cần classifier riêng",
+    }
+
+
+def _build_available_models() -> list:
+    """Return classifier models + best9 unified entry."""
+    models = [serialize_classifier_info(c) for c in get_classifier_registry().values()]
+    # Append best9 only if the file exists in detectors
+    for det in list_detector_models():
+        if is_unified_detector(det["detector_model_id"]):
+            models.append(_best9_model_entry())
+            break
+    return models
 
 
 @router.get("/", include_in_schema=False)
@@ -51,10 +84,7 @@ def health() -> dict[str, Any]:
         "analysis_mode": "slide_count",
         "available_analysis_modes": ["slide_count", "grid_estimation"],
         "preprocessing": default_classifier.preprocessing,
-        "available_models": [
-            serialize_classifier_info(classifier)
-            for classifier in get_classifier_registry().values()
-        ],
+        "available_models": _build_available_models(),
         "database": database_health(),
     }
 
@@ -79,10 +109,7 @@ def info() -> dict[str, Any]:
         ),
         "diagnostic_group_map": DIAGNOSTIC_GROUP_BY_LABEL,
         "clinical_flag_rules": load_clinical_flag_rules(),
-        "available_models": [
-            serialize_classifier_info(classifier)
-            for classifier in get_classifier_registry().values()
-        ],
+        "available_models": _build_available_models(),
         "database": database_health(),
     }
 
@@ -155,3 +182,23 @@ def get_history_detail(record_id: int) -> dict[str, Any]:
         **record,
         "database": database_health(),
     }
+
+
+# ---------------------------------------------------------------------------
+# Backward-compat aliases — mounted WITHOUT /api/v1 prefix in main.py
+# so existing clients calling /health, /info, / still work.
+# ---------------------------------------------------------------------------
+
+@alias_router.get("/", include_in_schema=False)
+def alias_root() -> dict[str, Any]:
+    return root()
+
+
+@alias_router.get("/health", include_in_schema=False)
+def alias_health() -> dict[str, Any]:
+    return health()
+
+
+@alias_router.get("/info", include_in_schema=False)
+def alias_info() -> dict[str, Any]:
+    return info()

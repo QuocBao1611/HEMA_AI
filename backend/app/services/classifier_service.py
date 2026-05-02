@@ -15,14 +15,13 @@ from PIL import Image
 from ultralytics import YOLO
 
 from backend.app.core.paths import (
-    CLASSIFIER_MODELS_DIR,
     CLASS_NAMES_PATH,
+    CLASSIFIER_MODELS_DIR,
     DATASET_CLASSES_DIR_CANDIDATES,
     IGNORED_ROOT_DIRS,
     MODEL_MANIFEST_PATH,
     PROJECT_ROOT,
 )
-
 
 REMOVE_CONFIG_KEYS = {"optional", "quantization_config"}
 DEFAULT_MODEL_PREPROCESSING = "mobilenet_v2"

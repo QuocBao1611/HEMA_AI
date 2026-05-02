@@ -1,13 +1,14 @@
 import type { Metadata } from "next";
 
 import { AppProviders } from "@/providers/app-providers";
+import { OfflineIndicator } from "@/components/ui/offline-indicator";
 
 import "./globals.css";
 
 export const metadata: Metadata = {
   title: "HEMA-AI Workspace",
   description:
-    "Workspace moi cho he thong phan tich te bao mau, duoc nang cap len Next.js va giu backend AI tren FastAPI.",
+    "Workspace mới cho hệ thống phân tích tế bào máu, được nâng cấp lên Next.js và giữ backend AI trên FastAPI.",
 };
 
 export default function RootLayout({
@@ -16,9 +17,12 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="vi" className="h-full antialiased">
-      <body className="min-h-full bg-slate-950 text-slate-50">
-        <AppProviders>{children}</AppProviders>
+    <html lang="vi" className="h-full antialiased" suppressHydrationWarning>
+      <body className="min-h-full">
+        <AppProviders>
+          {children}
+          <OfflineIndicator />
+        </AppProviders>
       </body>
     </html>
   );

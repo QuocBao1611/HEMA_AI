@@ -18,14 +18,13 @@ from backend.app.services.classifier_service import (
 from backend.app.services.analysis_onnx_service import Best9ONNXService
 
 DEFAULT_CONFIDENCE_THRESHOLD = 0.5
-BEST9_CONFIDENCE_THRESHOLD   = 0.25   # WBC hiếm (EO/ERB/MO) cần ngưỡng thấp hơn
 DEFAULT_OVERLAP_RATIO = 0.25
 DEFAULT_MAX_REGIONS = 144
 DEFAULT_PADDING_RATIO = 0.10
-DEFAULT_MIN_COMPONENT_AREA = 300  # ~18x18px — loại artifact bụi nhỏ, giữ PLT thật (~20-35px)
+DEFAULT_MIN_COMPONENT_AREA = 80
 DEFAULT_MAX_DETECTIONS = 256
 DETECTION_MAX_DIMENSION = 1536
-MIN_COMPONENT_SIDE = 18  # PLT thật ≥ 20px/chiều; bụi artifact ≤ 12px
+MIN_COMPONENT_SIDE = 10
 
 DIAGNOSTIC_GROUP_BY_LABEL = {
     "BA": "BA",
@@ -380,22 +379,16 @@ def detect_cell_boxes(
     max_detections: int,
     detector_model_id: str | None = None,
 ) -> list[dict[str, int]]:
-    import time
-    t0 = time.perf_counter()
     raw_boxes: list[dict[str, int]] = []
 
-    # Bước 1: Resize 1 lần duy nhất, dùng lại cho cả mask và YOLO
     detection_image, scale = resize_for_detection(image)
     image_array = image_to_rgb_array(detection_image)
-    total_pixels = detection_image.width * detection_image.height
-    total_img_pixels = image.width * image.height  # tính sẵn ra ngoài vòng lặp
-
-    # Bước 2: Contour detection trên ảnh đã resize
     mask = build_candidate_mask(image_array)
     components = extract_connected_components(mask)
 
-    adaptive_min_area = max(int(min_component_area), max(300, int(total_pixels * 0.0004)))
-    adaptive_max_area = int(total_pixels * 0.25)
+    total_pixels = detection_image.width * detection_image.height
+    adaptive_min_area = max(int(min_component_area), max(20, int(total_pixels * 0.0001)))
+    adaptive_max_area = int(total_pixels * 1.0)
 
     for component in components:
         rect_area = component.get("rect_area", component["area"])
@@ -419,11 +412,8 @@ def detect_cell_boxes(
             }
         )
 
-    t1 = time.perf_counter()
-
-    # Bước 3: YOLO chạy trên ảnh đã resize (nhanh hơn đáng kể so với ảnh gốc)
     yolo_model = initialize_detection_runtime(detector_model_id)
-    results = yolo_model(detection_image, conf=0.20, verbose=False, imgsz=640)
+    results = yolo_model(image, conf=0.15, verbose=False)
     boxes_result = results[0].boxes.data.cpu().numpy()
 
     for row in boxes_result:
@@ -431,37 +421,29 @@ def detect_cell_boxes(
         area = (x2_raw - x1_raw) * (y2_raw - y1_raw)
         if area < min_component_area:
             continue
-        if area > total_pixels * 0.25:
-            continue
-        # Scale bbox từ detection_image (resize) về kích thước ảnh gốc
         raw_boxes.append(
             {
-                "x1": int(round(x1_raw / scale)),
-                "y1": int(round(y1_raw / scale)),
-                "x2": int(round(x2_raw / scale)),
-                "y2": int(round(y2_raw / scale)),
+                "x1": int(round(x1_raw)),
+                "y1": int(round(y1_raw)),
+                "x2": int(round(x2_raw)),
+                "y2": int(round(y2_raw)),
             }
         )
-
-    t2 = time.perf_counter()
 
     for box in raw_boxes:
         box["area"] = (box["x2"] - box["x1"]) * (box["y2"] - box["y1"])
 
-    # Bước 4: NMS với cv2 (nhanh hơn O(n²) Python loop)
-    if raw_boxes:
-        nms_input_boxes = [
-            [b["x1"], b["y1"], b["x2"] - b["x1"], b["y2"] - b["y1"]] for b in raw_boxes
-        ]
-        nms_scores = [float(b["area"]) for b in raw_boxes]  # dùng area làm score proxy
-        indices = cv2.dnn.NMSBoxes(nms_input_boxes, nms_scores, score_threshold=0, nms_threshold=0.4)
-        kept_boxes = [raw_boxes[i] for i in (indices.flatten() if len(indices) else [])]
-    else:
-        kept_boxes = []
+    raw_boxes.sort(key=lambda item: item["area"], reverse=True)
+    kept_boxes: list[dict[str, int]] = []
+    for box in raw_boxes:
+        overlap = False
+        for kept in kept_boxes:
+            if compute_iou(box, kept) > 0.4:
+                overlap = True
+                break
+        if not overlap:
+            kept_boxes.append(box)
 
-    t3 = time.perf_counter()
-
-    # Bước 5: Expand boxes và sắp xếp
     boxes: list[dict[str, int]] = []
     for kept in kept_boxes:
         expanded_box = expand_box_xyxy((kept["x1"], kept["y1"], kept["x2"], kept["y2"]), padding_ratio, image.size)
@@ -479,17 +461,6 @@ def detect_cell_boxes(
     boxes.sort(key=lambda item: (-item["area"], item["y1"], item["x1"]))
     boxes = boxes[:max_detections]
     boxes.sort(key=lambda item: (item["y1"], item["x1"]))
-
-    t4 = time.perf_counter()
-    import logging
-    logger = logging.getLogger(__name__)
-    logger.info(
-        f"detect_cell_boxes | contour={1000*(t1-t0):.0f}ms "
-        f"yolo={1000*(t2-t1):.0f}ms "
-        f"nms={1000*(t3-t2):.0f}ms "
-        f"total={1000*(t4-t0):.0f}ms "
-        f"boxes={len(boxes)}"
-    )
     return boxes
 
 
@@ -832,7 +803,7 @@ def run_yolo_unified_analysis(
     nc = len(class_names)
 
     # Use ONNX Service for inference (YOLOv13 compatibility)
-    svc = Best9ONNXService.get_instance(conf_thres=max(0.01, BEST9_CONFIDENCE_THRESHOLD * 0.5))
+    svc = Best9ONNXService.get_instance(conf_thres=max(0.01, confidence_threshold * 0.5))
     
     # Tiling strategy for high-res images
     width, height = image.size
@@ -892,12 +863,7 @@ def run_yolo_unified_analysis(
 
         raw_label = class_names[cls]
         grouped_label = DIAGNOSTIC_GROUP_BY_LABEL.get(raw_label, raw_label)
-        _count_thresh = (
-            BEST9_CONFIDENCE_THRESHOLD
-            if model_id == "best9"
-            else confidence_threshold
-        )
-        counted = conf >= _count_thresh
+        counted = conf >= confidence_threshold
 
         # Use the actual probability vector from ONNX
         ranked = vector_to_prediction_items(np.array(probs), class_names)

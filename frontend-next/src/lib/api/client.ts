@@ -1,9 +1,12 @@
 import { ZodSchema } from "zod";
 
-const defaultBaseUrl = "http://localhost:8000";
+const defaultBaseUrl = "http://localhost:8000/api/v1";
 
-export const apiBaseUrl =
-  process.env.NEXT_PUBLIC_API_URL?.replace(/\/+$/, "") || defaultBaseUrl;
+let base = process.env.NEXT_PUBLIC_API_URL?.replace(/\/+$/, "") || defaultBaseUrl;
+if (!base.endsWith("/api/v1")) {
+  base = `${base}/api/v1`;
+}
+export const apiBaseUrl = base;
 
 export class ApiError extends Error {
   status: number;
@@ -67,6 +70,15 @@ export async function apiRequest<T>(
     },
     cache: "no-store",
   });
+
+  if (response.status === 401 && typeof window !== "undefined") {
+    // Clear auth state and redirect to login if not already there
+    const authStore = (await import("@/stores/auth-store")).useAuthStore;
+    authStore.getState().logout();
+    if (window.location.pathname !== "/login") {
+      window.location.href = "/login";
+    }
+  }
 
   return parseResponse<T>(response, schema);
 }

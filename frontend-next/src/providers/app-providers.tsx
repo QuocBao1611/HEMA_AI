@@ -4,6 +4,7 @@ import { Toaster } from "sonner";
 
 import { QueryProvider } from "@/providers/query-provider";
 import { AuthProvider } from "@/providers/auth-provider";
+import { ThemeProvider } from "@/providers/theme-provider";
 
 type AppProvidersProps = {
   children: React.ReactNode;
@@ -11,10 +12,11 @@ type AppProvidersProps = {
 
 export function AppProviders({ children }: AppProvidersProps) {
   return (
-    <QueryProvider>
-      <AuthProvider>
-        {children}
-      </AuthProvider>
+    <ThemeProvider>
+      <QueryProvider>
+        <AuthProvider>
+          {children}
+        </AuthProvider>
       <Toaster
         position="top-right"
         richColors
@@ -23,6 +25,7 @@ export function AppProviders({ children }: AppProvidersProps) {
           className: "border border-white/10 bg-slate-950 text-slate-100",
         }}
       />
-    </QueryProvider>
+      </QueryProvider>
+    </ThemeProvider>
   );
 }

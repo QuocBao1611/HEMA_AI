@@ -5,8 +5,10 @@ from collections.abc import Iterable
 from fastapi import HTTPException, UploadFile
 from PIL import Image, UnidentifiedImageError
 
+import os
 
-MAX_UPLOAD_BYTES = 10 * 1024 * 1024
+MAX_UPLOAD_SIZE_MB = int(os.getenv("MAX_UPLOAD_SIZE_MB", "10"))
+MAX_UPLOAD_BYTES = MAX_UPLOAD_SIZE_MB * 1024 * 1024
 DEFAULT_CORS_ALLOW_ORIGINS = (
     "http://127.0.0.1",
     "http://localhost",
@@ -89,6 +91,6 @@ def validate_image_upload(file: UploadFile, raw_bytes: bytes) -> None:
     if len(raw_bytes) > MAX_UPLOAD_BYTES:
         raise HTTPException(
             status_code=413,
-            detail=f"Tệp quá lớn. Giới hạn: {MAX_UPLOAD_BYTES // (1024 * 1024)}MB.",
+            detail=f"Tệp quá lớn. Giới hạn: {MAX_UPLOAD_SIZE_MB}MB.",
         )
     verify_image_bytes(raw_bytes)
