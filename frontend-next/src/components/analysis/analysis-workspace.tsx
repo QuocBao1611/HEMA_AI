@@ -112,6 +112,61 @@ function StatusCard({
   );
 }
 
+function CustomModelSelect({ availableModels, form }: { availableModels: any[], form: any }) {
+  const [isOpen, setIsOpen] = useState(false);
+  const selectedModelId = useWatch({ control: form.control, name: "model_id" });
+  const selectRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (selectRef.current && !selectRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const selectedModel = availableModels.find((m) => m.model_id === selectedModelId);
+
+  return (
+    <div className="relative" ref={selectRef}>
+      <div 
+        onClick={() => setIsOpen(!isOpen)}
+        className={`flex h-12 w-full items-center justify-between rounded-2xl border bg-slate-50 dark:bg-slate-950/60 px-4 text-sm font-medium text-slate-900 dark:text-white shadow-sm transition-all cursor-pointer ${
+          isOpen ? "border-red-500 ring-2 ring-red-500/20 dark:border-red-400" : "border-slate-200 dark:border-white/10 hover:border-red-300 dark:hover:border-white/20"
+        }`}
+      >
+        <span className="truncate">{selectedModel ? selectedModel.display_name : "Chọn mô hình..."}</span>
+        <ChevronDown className={`h-5 w-5 text-slate-400 transition-transform ${isOpen ? "rotate-180" : ""}`} />
+      </div>
+      
+      {isOpen && (
+        <div className="absolute z-50 mt-2 w-full rounded-2xl border border-slate-200 dark:border-white/10 bg-white dark:bg-[#0f0f16] shadow-xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+          <div className="max-h-60 overflow-auto py-1 custom-scrollbar">
+            {availableModels.map((model) => (
+              <div
+                key={model.model_id}
+                onClick={() => {
+                  form.setValue("model_id", model.model_id);
+                  setIsOpen(false);
+                }}
+                className={`flex items-center px-4 py-3 text-sm cursor-pointer transition-colors ${
+                  selectedModelId === model.model_id 
+                    ? "bg-red-50 dark:bg-red-500/10 text-red-600 dark:text-red-400 font-bold" 
+                    : "text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/5"
+                }`}
+              >
+                {model.display_name}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function AnalysisWorkspace() {
   const { data: systemInfo, isLoading: isSystemLoading, isError, error } = useSystemInfo();
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -422,21 +477,9 @@ export function AnalysisWorkspace() {
             </div>
 
             <div className="space-y-4">
-              <label className="block space-y-2">
+              <label className="block space-y-2 relative z-20">
                 <span className="text-sm font-medium text-slate-800 dark:text-slate-200">Mô hình AI</span>
-                <div className="relative">
-                  <select
-                    className="h-12 w-full appearance-none rounded-2xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-slate-950/60 px-4 pr-10 text-sm font-medium text-slate-900 dark:text-white shadow-sm outline-none transition-all hover:border-red-300 focus:border-red-500 focus:ring-2 focus:ring-red-500/20 dark:hover:border-white/20 dark:focus:border-red-400 cursor-pointer"
-                    {...form.register("model_id")}
-                  >
-                    {availableModels.map((model) => (
-                      <option key={model.model_id} value={model.model_id}>
-                        {model.display_name}
-                      </option>
-                    ))}
-                  </select>
-                  <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-400 pointer-events-none" />
-                </div>
+                <CustomModelSelect availableModels={availableModels} form={form} />
               </label>
 
               <label className="block space-y-2">
