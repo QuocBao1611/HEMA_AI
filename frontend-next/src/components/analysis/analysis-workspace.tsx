@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import type { ElementType } from "react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useThemeStore } from "@/stores/theme-store";
 import { useMutation } from "@tanstack/react-query";
 import { useForm, useWatch } from "react-hook-form";
@@ -38,6 +38,7 @@ import { SurfaceCard } from "@/components/ui/surface-card";
 import { ClinicalFlags } from "@/components/analysis/clinical-flags";
 import { DetectionOverlay } from "@/components/analysis/detection-overlay";
 import { ResultTable } from "@/components/analysis/result-table";
+import { CellReviewGallery, type CellCorrection } from "@/components/analysis/cell-review-gallery";
 import { exportAnalysisReport } from "@/lib/reports/export-analysis-report";
 
 type AnalysisFormValues = {
@@ -50,6 +51,119 @@ type AnalysisFormValues = {
 
 type AnalysisMode = "predict" | "analyze";
 type AnalysisResult = PredictResponse | AnalyzeResponse;
+
+const DIAGNOSTIC_GROUP_BY_LABEL: Record<string, string> = {
+  BA: "BA", BNE: "NE", EO: "EO", ERB: "ERB", IG: "IG",
+  LY: "LY", MMY: "IG", MO: "MO", MY: "IG", MYO: "IG",
+  PLT: "PLT", PMY: "IG", RBC: "RBC", SNE: "NE",
+};
+const WBC_DIFFERENTIAL_LABELS = new Set(["BA", "EO", "IG", "LY", "MO", "NE"]);
+
+function recomputeCounts(
+  result: AnalyzeResponse,
+  corrections: Map<number, CellCorrection>,
+): { estimated_counts: CountRow[]; grouped_counts: CountRow[]; wbc_differential: CountRow[] } {
+  const regions = result.region_predictions ?? [];
+  const threshold = result.confidence_threshold ?? 0;
+
+  const rawBuckets = new Map<string, { count: number; confSum: number; maxConf: number }>();
+  const groupedBuckets = new Map<string, { count: number; confSum: number; maxConf: number; members: Set<string> }>();
+
+  for (const rp of regions) {
+    if (rp.confidence < threshold) continue;
+    const correction = corrections.get(rp.region_id);
+    const label = correction ? correction.newLabel : rp.label;
+    const groupLabel = DIAGNOSTIC_GROUP_BY_LABEL[label] ?? label;
+
+    // Raw counts
+    const rb = rawBuckets.get(label) ?? { count: 0, confSum: 0, maxConf: 0 };
+    rb.count += 1;
+    rb.confSum += rp.confidence;
+    rb.maxConf = Math.max(rb.maxConf, rp.confidence);
+    rawBuckets.set(label, rb);
+
+    // Grouped counts
+    const gb = groupedBuckets.get(groupLabel) ?? { count: 0, confSum: 0, maxConf: 0, members: new Set() };
+    gb.count += 1;
+    gb.confSum += rp.confidence;
+    gb.maxConf = Math.max(gb.maxConf, rp.confidence);
+    gb.members.add(label);
+    groupedBuckets.set(groupLabel, gb);
+  }
+
+  const totalClassified = Array.from(rawBuckets.values()).reduce((s, b) => s + b.count, 0);
+
+  const estimated_counts: CountRow[] = Array.from(rawBuckets.entries())
+    .map(([label, b]) => ({
+      label,
+      count: b.count,
+      ratio: totalClassified ? b.count / totalClassified : 0,
+      average_confidence: b.count ? b.confSum / b.count : 0,
+      max_confidence: b.maxConf,
+    }))
+    .sort((a, b) => b.count - a.count || b.average_confidence! - a.average_confidence!);
+
+  const grouped_counts: CountRow[] = Array.from(groupedBuckets.entries())
+    .map(([label, b]) => ({
+      label,
+      count: b.count,
+      ratio: totalClassified ? b.count / totalClassified : 0,
+      average_confidence: b.count ? b.confSum / b.count : 0,
+      max_confidence: b.maxConf,
+      member_labels: Array.from(b.members).sort(),
+    }))
+    .sort((a, b) => b.count - a.count || b.average_confidence! - a.average_confidence!);
+
+  const totalWbc = Array.from(groupedBuckets.entries())
+    .filter(([l]) => WBC_DIFFERENTIAL_LABELS.has(l))
+    .reduce((s, [, b]) => s + b.count, 0);
+
+  const wbc_differential: CountRow[] = Array.from(groupedBuckets.entries())
+    .filter(([l]) => WBC_DIFFERENTIAL_LABELS.has(l))
+    .map(([label, b]) => ({
+      label,
+      count: b.count,
+      ratio: totalWbc ? b.count / totalWbc : 0,
+      average_confidence: b.count ? b.confSum / b.count : 0,
+      max_confidence: b.maxConf,
+      member_labels: Array.from(b.members).sort(),
+    }))
+    .sort((a, b) => b.count - a.count || b.average_confidence! - a.average_confidence!);
+
+  const totalDetected = regions.length;
+  const avgConf = totalClassified > 0 
+    ? Array.from(rawBuckets.values()).reduce((s, b) => s + b.confSum, 0) / totalClassified
+    : 0;
+
+  return { estimated_counts, grouped_counts, wbc_differential, total_classified: totalClassified, total_detected: totalDetected, average_confidence: avgConf };
+}
+
+const OPTIMAL_PARAMS: Record<string, Partial<AnalysisFormValues>> = {
+  best9: {
+    confidence_threshold: 0.20,
+    max_detections: 300,
+    padding_ratio: 0.10,
+    min_component_area: 120,
+  },
+  mobilenetv2_phase2_best: {
+    confidence_threshold: 0.20,
+    max_detections: 300,
+    padding_ratio: 0.10,
+    min_component_area: 120,
+  },
+  mobilenetv2_final_finetuned: {
+    confidence_threshold: 0.20,
+    max_detections: 300,
+    padding_ratio: 0.10,
+    min_component_area: 120,
+  },
+  best_model_v2: {
+    confidence_threshold: 0.20,
+    max_detections: 300,
+    padding_ratio: 0.10,
+    min_component_area: 120,
+  }
+};
 
 function getRowsForTab(result: AnalyzeResponse, tab: ResultTabKey): CountRow[] {
   if (tab === "groups") {
@@ -92,8 +206,8 @@ function StatusCard({
   loading?: boolean;
 }) {
   return (
-    <article className="group relative overflow-hidden rounded-lg border border-black/10 dark:border-white/10 bg-white/50 dark:bg-white/[0.055] p-5 backdrop-blur-md transition hover:border-red-400/35">
-      <div className="absolute right-0 top-0 h-24 w-24 bg-red-500/0 dark:bg-red-500/10 blur-3xl transition group-hover:bg-red-500/5 dark:group-hover:bg-red-500/18" />
+    <article className="group relative overflow-hidden rounded-lg border border-black/10 dark:border-white/10 bg-white/50 dark:bg-white/[0.055] p-5 backdrop-blur-md transition hover:border-slate-400/35 dark:hover:border-white/20">
+      <div className="absolute right-0 top-0 h-24 w-24 bg-slate-500/0 dark:bg-white/5 blur-3xl transition group-hover:bg-slate-500/5 dark:group-hover:bg-white/10" />
       <div className="relative">
         <div className="mb-5 flex h-10 w-10 items-center justify-center rounded-md border border-black/10 dark:border-white/10 bg-slate-50 dark:bg-white/8 text-slate-700 dark:text-zinc-300 transition group-hover:text-red-600 dark:group-hover:text-red-200">
           <Icon className="h-5 w-5" />
@@ -131,16 +245,15 @@ function CustomModelSelect({ availableModels, form }: { availableModels: any[], 
 
   return (
     <div className="relative" ref={selectRef}>
-      <div 
+      <div
         onClick={() => setIsOpen(!isOpen)}
-        className={`flex h-12 w-full items-center justify-between rounded-2xl border bg-slate-50 dark:bg-slate-950/60 px-4 text-sm font-medium text-slate-900 dark:text-white shadow-sm transition-all cursor-pointer ${
-          isOpen ? "border-red-500 ring-2 ring-red-500/20 dark:border-red-400" : "border-slate-200 dark:border-white/10 hover:border-red-300 dark:hover:border-white/20"
-        }`}
+        className={`flex h-12 w-full items-center justify-between rounded-2xl border bg-slate-50 dark:bg-slate-950/60 px-4 text-sm font-medium text-slate-900 dark:text-white shadow-sm transition-all cursor-pointer ${isOpen ? "border-slate-500 ring-2 ring-slate-500/10 dark:border-white/40" : "border-slate-200 dark:border-white/10 hover:border-slate-300 dark:hover:border-white/20"
+          }`}
       >
         <span className="truncate">{selectedModel ? selectedModel.display_name : "Chọn mô hình..."}</span>
         <ChevronDown className={`h-5 w-5 text-slate-400 transition-transform ${isOpen ? "rotate-180" : ""}`} />
       </div>
-      
+
       {isOpen && (
         <div className="absolute z-50 mt-2 w-full rounded-2xl border border-slate-200 dark:border-white/10 bg-white dark:bg-[#0f0f16] shadow-xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
           <div className="max-h-60 overflow-auto py-1 custom-scrollbar">
@@ -151,11 +264,10 @@ function CustomModelSelect({ availableModels, form }: { availableModels: any[], 
                   form.setValue("model_id", model.model_id);
                   setIsOpen(false);
                 }}
-                className={`flex items-center px-4 py-3 text-sm cursor-pointer transition-colors ${
-                  selectedModelId === model.model_id 
-                    ? "bg-red-50 dark:bg-red-500/10 text-red-600 dark:text-red-400 font-bold" 
+                className={`flex items-center px-4 py-3 text-sm cursor-pointer transition-colors ${selectedModelId === model.model_id
+                    ? "bg-slate-100 dark:bg-white/10 text-slate-900 dark:text-white font-bold"
                     : "text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/5"
-                }`}
+                  }`}
               >
                 {model.display_name}
               </div>
@@ -173,6 +285,40 @@ export function AnalysisWorkspace() {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [activeTab, setActiveTab] = useState<ResultTabKey>("counts");
+  const [corrections, setCorrections] = useState<Map<number, CellCorrection>>(new Map());
+
+  const handleCorrect = useCallback((regionId: number, newLabel: string) => {
+    if (!result || result.mode !== "analyze") return;
+    const rp = result.region_predictions?.find((r) => r.region_id === regionId);
+    if (!rp) return;
+    setCorrections((prev) => {
+      const next = new Map(prev);
+      next.set(regionId, { regionId, originalLabel: rp.label, newLabel });
+      return next;
+    });
+    toast.success(`Đã chỉnh: vùng #${regionId} → ${newLabel}`);
+  }, [result]);
+
+  const handleUndoCorrect = useCallback((regionId: number) => {
+    setCorrections((prev) => {
+      const next = new Map(prev);
+      next.delete(regionId);
+      return next;
+    });
+  }, []);
+
+  const correctedResult = useMemo(() => {
+    if (!result || result.mode !== "analyze") return null;
+    return recomputeCounts(result, corrections);
+  }, [result, corrections]);
+
+  function getCorrectedRowsForTab(tab: ResultTabKey): CountRow[] {
+    if (!result || result.mode !== "analyze") return [];
+    const source = correctedResult ?? result;
+    if (tab === "groups") return source.grouped_counts ?? [];
+    if (tab === "wbc") return source.wbc_differential ?? [];
+    return source.estimated_counts ?? [];
+  }
 
   const form = useForm<AnalysisFormValues>({
     defaultValues: {
@@ -269,6 +415,100 @@ export function AnalysisWorkspace() {
     name: "model_id",
   });
 
+  const handleAddDetection = useCallback(async (box: { x: number; y: number; width: number; height: number }) => {
+    if (!previewUrl || !selectedModel) return;
+    
+    const toastId = toast.loading("Đang nhận diện tế bào vừa vẽ...");
+
+    try {
+      // 1. Crop the original image
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      img.src = previewUrl;
+      await new Promise((resolve, reject) => { 
+        img.onload = resolve; 
+        img.onerror = reject;
+      });
+
+      const canvas = document.createElement("canvas");
+      canvas.width = box.width;
+      canvas.height = box.height;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) throw new Error("Canvas context failed");
+
+      ctx.drawImage(img, box.x, box.y, box.width, box.height, 0, 0, box.width, box.height);
+      
+      const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.95));
+      if (!blob) throw new Error("Canvas toBlob failed");
+
+      // 2. Send to backend for single prediction
+      const file = new File([blob], "crop.jpg", { type: "image/jpeg" });
+      const payload = {
+        file,
+        model_id: selectedModel,
+        confidence_threshold: 0,
+        max_detections: 1,
+        padding_ratio: 0,
+        min_component_area: 0,
+      };
+
+      const prediction = await predictImage(payload);
+
+      // 3. Update UI state with actual label
+      setResult((prev) => {
+        if (!prev || prev.mode !== "analyze" || !prev.region_predictions) return prev;
+        
+        const currentIds = prev.region_predictions.map(rp => rp.region_id).filter(id => id !== undefined) as number[];
+        const nextId = currentIds.length > 0 ? Math.max(...currentIds) + 1 : 1;
+        
+        const newDetection = {
+          region_id: nextId,
+          box: box,
+          label: prediction.label,
+          confidence: prediction.confidence,
+        };
+        
+        return {
+          ...prev,
+          region_predictions: [...prev.region_predictions, newDetection],
+        };
+      });
+      
+      toast.success(`Đã nhận diện: ${prediction.label} (${(prediction.confidence * 100).toFixed(0)}%)`, { id: toastId });
+    } catch (e) {
+      console.error("Auto-predict failed:", e);
+      // Fallback
+      setResult((prev) => {
+        if (!prev || prev.mode !== "analyze" || !prev.region_predictions) return prev;
+        const currentIds = prev.region_predictions.map(rp => rp.region_id).filter(id => id !== undefined) as number[];
+        const nextId = currentIds.length > 0 ? Math.max(...currentIds) + 1 : 1;
+        return {
+          ...prev,
+          region_predictions: [...prev.region_predictions, { region_id: nextId, box: box, label: "RBC", confidence: 1.0 }],
+        };
+      });
+      toast.error("Không thể nhận diện tự động, đã gán nhãn mặc định là RBC", { id: toastId });
+    }
+  }, [previewUrl, selectedModel]);
+
+  const handleDeleteDetection = useCallback((regionId: number) => {
+    setResult((prev) => {
+      if (!prev || prev.mode !== "analyze" || !prev.region_predictions) return prev;
+      return {
+        ...prev,
+        region_predictions: prev.region_predictions.filter(rp => rp.region_id !== regionId),
+      };
+    });
+    setCorrections((prev) => {
+      if (prev.has(regionId)) {
+        const next = new Map(prev);
+        next.delete(regionId);
+        return next;
+      }
+      return prev;
+    });
+  }, []);
+
   useEffect(() => {
     if (selectedModel || !availableModels.length) {
       return;
@@ -279,6 +519,28 @@ export function AnalysisWorkspace() {
       systemInfo?.default_model_id ?? availableModels[0].model_id,
     );
   }, [availableModels, form, selectedModel, systemInfo?.default_model_id]);
+
+  // Auto-apply optimal params when model changes
+  useEffect(() => {
+    if (!selectedModel) return;
+    
+    // Find matching optimal config
+    const optimal = Object.entries(OPTIMAL_PARAMS).find(([key]) => selectedModel.includes(key));
+    if (optimal) {
+      const params = optimal[1];
+      if (params.confidence_threshold !== undefined) form.setValue("confidence_threshold", params.confidence_threshold);
+      if (params.max_detections !== undefined) form.setValue("max_detections", params.max_detections);
+      if (params.padding_ratio !== undefined) form.setValue("padding_ratio", params.padding_ratio);
+      if (params.min_component_area !== undefined) form.setValue("min_component_area", params.min_component_area);
+    }
+  }, [selectedModel, form]);
+
+  const currentValues = useWatch({ control: form.control });
+  const currentOptimal = useMemo(() => {
+    if (!selectedModel) return null;
+    const match = Object.entries(OPTIMAL_PARAMS).find(([key]) => selectedModel.includes(key));
+    return match ? match[1] : null;
+  }, [selectedModel]);
 
   const currentModelName = useMemo(() => {
     return (
@@ -313,7 +575,7 @@ export function AnalysisWorkspace() {
   const isDark = theme === "dark";
 
   return (
-    <div className="bg-[linear-gradient(180deg,rgba(248,250,252,0.4),rgba(241,245,249,0.95)_34%,#f1f5f9_100%)] dark:bg-[linear-gradient(180deg,rgba(35,4,7,0.4),rgba(8,1,2,0.95)_34%,#070101_100%)] transition-colors duration-500">
+    <div className="bg-[linear-gradient(180deg,rgba(248,250,252,0.4),rgba(241,245,249,0.95)_34%,#f1f5f9_100%)] dark:bg-[linear-gradient(180deg,rgba(0,0,0,0.2),rgba(0,0,0,0.95)_34%,#000000_100%)] transition-colors duration-500">
       <section className="relative min-h-screen overflow-hidden border-b border-black/8 dark:border-white/8 transition-colors duration-500">
         <Image
           src={isDark ? "/images/hero-doctor-lab.png" : "/images/hero-doctor-lab-light.png"}
@@ -321,11 +583,10 @@ export function AnalysisWorkspace() {
           fill
           priority
           sizes="100vw"
-          className={`object-cover transition-opacity duration-500 ${
-            isDark ? "object-right-top" : "object-[right_28%]"
-          }`}
+          className={`object-cover transition-opacity duration-500 ${isDark ? "object-right-top" : "object-[right_28%]"
+            }`}
         />
-        <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(255,255,255,0.1),transparent_40%),linear-gradient(180deg,transparent_60%,rgba(241,245,249,0.8)_90%,#f1f5f9)] dark:bg-[linear-gradient(90deg,rgba(0,0,0,0.88),rgba(0,0,0,0.48)_46%,rgba(0,0,0,0.12)),linear-gradient(180deg,rgba(0,0,0,0.04),rgba(7,1,2,0.56)_72%,#120304)] transition-colors duration-500 pointer-events-none" />
+        <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(255,255,255,0.1),transparent_40%),linear-gradient(180deg,transparent_60%,rgba(241,245,249,0.8)_90%,#f1f5f9)] dark:bg-[linear-gradient(90deg,rgba(0,0,0,0.92),rgba(0,0,0,0.6)_46%,rgba(0,0,0,0.1)),linear-gradient(180deg,transparent_60%,rgba(0,0,0,0.8)_90%,#000000)] transition-colors duration-500 pointer-events-none" />
 
         <div className="relative flex min-h-screen items-center px-6 py-20 sm:px-10 lg:px-14">
           <div className="max-w-2xl">
@@ -408,7 +669,7 @@ export function AnalysisWorkspace() {
         >
           <SurfaceCard className="p-6">
             <div className="mb-4 flex items-center gap-3">
-              <div className="inline-flex rounded-2xl border border-red-400/20 bg-red-50 dark:bg-red-500/10 p-3 text-red-600 dark:text-red-100">
+              <div className="inline-flex rounded-2xl border border-slate-400/20 bg-slate-50 dark:bg-white/10 p-3 text-slate-600 dark:text-slate-100">
                 <UploadCloud className="h-5 w-5" />
               </div>
               <div>
@@ -421,10 +682,11 @@ export function AnalysisWorkspace() {
 
             <div
               {...getRootProps()}
-              className={`relative rounded-[28px] border border-dashed p-6 transition ${isDragActive
-                  ? "border-red-300/70 bg-red-50/50 dark:bg-red-500/10"
-                  : "border-black/10 dark:border-white/12 bg-slate-50 dark:bg-slate-950/36 hover:border-red-200/35 hover:bg-slate-100 dark:hover:bg-white/[0.04]"
-                }`}
+              className={`relative rounded-[28px] border-2 border-dashed p-6 transition ${
+                isDragActive
+                  ? "border-blue-400 bg-blue-50/50 dark:border-blue-500 dark:bg-white/10"
+                  : "border-slate-300 dark:border-white/20 bg-slate-50 dark:bg-slate-950/36 hover:border-blue-300 dark:hover:border-white/30 hover:bg-slate-100 dark:hover:bg-white/[0.04]"
+              }`}
             >
               <input {...getInputProps()} />
 
@@ -452,7 +714,7 @@ export function AnalysisWorkspace() {
                 </div>
               ) : (
                 <div className="flex min-h-[280px] flex-col items-center justify-center text-center">
-                  <div className="mb-4 inline-flex rounded-3xl border border-red-400/20 bg-red-50 dark:bg-red-500/10 p-4 text-red-600 dark:text-red-100">
+                  <div className="mb-4 inline-flex rounded-3xl border border-slate-400/20 bg-slate-50 dark:bg-white/10 p-4 text-slate-600 dark:text-slate-100">
                     <FileImage className="h-7 w-7" />
                   </div>
                   <h3 className="text-xl font-semibold text-slate-900 dark:text-white">
@@ -468,11 +730,11 @@ export function AnalysisWorkspace() {
 
           <SurfaceCard className="p-6">
             <div className="mb-5 flex items-center gap-3">
-              <div className="inline-flex rounded-2xl border border-red-400/20 bg-red-50 dark:bg-red-500/10 p-3 text-red-600 dark:text-red-100">
+              <div className="inline-flex rounded-2xl border border-slate-400/20 bg-slate-50 dark:bg-white/10 p-3 text-slate-600 dark:text-slate-100">
                 <FlaskConical className="h-5 w-5" />
               </div>
               <div>
-                <h2 className="text-xl font-semibold text-slate-900 dark:text-white">Thông số phân tích</h2>
+                <h2 className="text-xl font-bold text-black dark:text-white">Thông số phân tích</h2>
               </div>
             </div>
 
@@ -483,7 +745,12 @@ export function AnalysisWorkspace() {
               </label>
 
               <label className="block space-y-2">
-                <span className="text-sm font-medium text-slate-800 dark:text-slate-200">Ngưỡng tin cậy</span>
+                <span className="text-sm font-medium text-slate-800 dark:text-slate-200">
+                  Ngưỡng tin cậy
+                  {currentOptimal && currentValues.confidence_threshold === currentOptimal.confidence_threshold && (
+                    <span className="ml-2 text-[10px] font-bold text-emerald-600 bg-emerald-100 dark:bg-emerald-900/30 dark:text-emerald-400 px-1.5 py-0.5 rounded uppercase tracking-wider">(Tối ưu)</span>
+                  )}
+                </span>
                 <input
                   type="number"
                   step="0.05"
@@ -495,7 +762,12 @@ export function AnalysisWorkspace() {
               </label>
 
               <label className="block space-y-2">
-                <span className="text-sm font-medium text-slate-800 dark:text-slate-200">Giới hạn phát hiện</span>
+                <span className="text-sm font-medium text-slate-800 dark:text-slate-200">
+                  Giới hạn phát hiện
+                  {currentOptimal && currentValues.max_detections === currentOptimal.max_detections && (
+                    <span className="ml-2 text-[10px] font-bold text-emerald-600 bg-emerald-100 dark:bg-emerald-900/30 dark:text-emerald-400 px-1.5 py-0.5 rounded uppercase tracking-wider">(Tối ưu)</span>
+                  )}
+                </span>
                 <input
                   type="number"
                   min="1"
@@ -506,7 +778,12 @@ export function AnalysisWorkspace() {
               </label>
 
               <label className="block space-y-2">
-                <span className="text-sm font-medium text-slate-800 dark:text-slate-200">Tỷ lệ viền đệm (Padding)</span>
+                <span className="text-sm font-medium text-slate-800 dark:text-slate-200">
+                  Tỷ lệ viền đệm (Padding)
+                  {currentOptimal && currentValues.padding_ratio === currentOptimal.padding_ratio && (
+                    <span className="ml-2 text-[10px] font-bold text-emerald-600 bg-emerald-100 dark:bg-emerald-900/30 dark:text-emerald-400 px-1.5 py-0.5 rounded uppercase tracking-wider">(Tối ưu)</span>
+                  )}
+                </span>
                 <input
                   type="number"
                   step="0.05"
@@ -518,7 +795,12 @@ export function AnalysisWorkspace() {
               </label>
 
               <label className="block space-y-2">
-                <span className="text-sm font-medium text-slate-800 dark:text-slate-200">Kích thước tối thiểu (Lọc bụi)</span>
+                <span className="text-sm font-medium text-slate-800 dark:text-slate-200">
+                  Kích thước tối thiểu (Lọc bụi)
+                  {currentOptimal && currentValues.min_component_area === currentOptimal.min_component_area && (
+                    <span className="ml-2 text-[10px] font-bold text-emerald-600 bg-emerald-100 dark:bg-emerald-900/30 dark:text-emerald-400 px-1.5 py-0.5 rounded uppercase tracking-wider">(Tối ưu)</span>
+                  )}
+                </span>
                 <input
                   type="number"
                   min="16"
@@ -574,13 +856,13 @@ export function AnalysisWorkspace() {
             <SurfaceCard className="p-6">
               <div className="mb-5 flex flex-wrap items-start justify-between gap-4">
                 <div>
-                  <p className="text-[11px] font-bold uppercase tracking-[0.32em] text-red-200/72">
-                    Bảng kết quả
+                  <p className="text-[11px] font-bold uppercase tracking-[0.32em] text-black dark:text-white/60">
+                    Kết quả phân tích
                   </p>
-                  <h2 className="mt-2 text-2xl font-semibold text-slate-900 dark:text-white">
+                  <h2 className="mt-2 text-2xl font-bold text-black dark:text-white">
                     {result.mode === "predict"
                       ? `Dự đoán nhanh: ${result.label}`
-                      : `${formatCount(result.classified_cell_count)} tế bào được tính`}
+                      : `${formatCount(correctedResult?.total_classified ?? result.classified_cell_count)} tế bào được tính`}
                   </h2>
                 </div>
                 <div className="rounded-full border border-black/10 dark:border-white/10 bg-slate-50 dark:bg-white/6 px-4 py-2 text-sm text-slate-700 dark:text-slate-100">
@@ -594,7 +876,7 @@ export function AnalysisWorkspace() {
                   label="Phát hiện"
                   value={
                     result.mode === "analyze"
-                      ? formatCount(result.detected_cell_count)
+                      ? formatCount(correctedResult?.total_detected ?? result.detected_cell_count)
                       : "1"
                   }
                 />
@@ -602,7 +884,7 @@ export function AnalysisWorkspace() {
                   label="Phân loại"
                   value={
                     result.mode === "analyze"
-                      ? formatCount(result.classified_cell_count)
+                      ? formatCount(correctedResult?.total_classified ?? result.classified_cell_count)
                       : "1"
                   }
                 />
@@ -610,7 +892,7 @@ export function AnalysisWorkspace() {
                   label="Tin cậy TB"
                   value={
                     result.mode === "analyze"
-                      ? formatPercent(result.average_confidence)
+                      ? formatPercent(correctedResult?.average_confidence ?? result.average_confidence)
                       : formatPercent(result.confidence)
                   }
                 />
@@ -641,7 +923,7 @@ export function AnalysisWorkspace() {
                     <Microscope className="h-5 w-5" />
                   </div>
                   <div>
-                    <h2 className="text-xl font-semibold text-slate-900 dark:text-white">Bản đồ phát hiện tế bào</h2>
+                    <h2 className="text-xl font-bold text-black dark:text-white">Bản đồ phát hiện tế bào</h2>
                     <p className="text-sm text-slate-600 dark:text-slate-300/72">
                       Hộp phát hiện và nhãn phân loại trên ảnh gốc.
                     </p>
@@ -649,11 +931,28 @@ export function AnalysisWorkspace() {
                 </div>
                 <DetectionOverlay
                   imageSrc={previewUrl}
-                  detections={result.region_predictions.map((rp: { box: { x: number; y: number; width: number; height: number }; label: string; confidence: number }) => ({
+                  detections={result.region_predictions.map((rp: { region_id: number; box: { x: number; y: number; width: number; height: number }; label: string; confidence: number }) => ({
+                    region_id: rp.region_id,
                     box: rp.box,
                     label: rp.label,
                     confidence: rp.confidence,
                   }))}
+                  onAddDetection={handleAddDetection}
+                />
+              </SurfaceCard>
+            ) : null}
+
+            {/* Cell Review Gallery — Human-in-the-Loop */}
+            {result.mode === "analyze" && previewUrl && result.region_predictions?.length ? (
+              <SurfaceCard className="p-6 relative z-20">
+                <CellReviewGallery
+                  imageSrc={previewUrl}
+                  detections={result.region_predictions}
+                  classNames={systemInfo?.class_names ?? []}
+                  corrections={corrections}
+                  onCorrect={handleCorrect}
+                  onUndoCorrect={handleUndoCorrect}
+                  onDelete={handleDeleteDetection}
                 />
               </SurfaceCard>
             ) : null}
@@ -665,7 +964,7 @@ export function AnalysisWorkspace() {
                     <Sparkles className="h-5 w-5" />
                   </div>
                   <div>
-                    <h2 className="text-xl font-semibold text-slate-900 dark:text-white">Top dự đoán</h2>
+                    <h2 className="text-xl font-bold text-black dark:text-white">Top dự đoán</h2>
                     <p className="text-sm text-slate-600 dark:text-slate-300/72">
                       Xếp hạng độ tin cậy từ backend `/predict`.
                     </p>
@@ -690,11 +989,12 @@ export function AnalysisWorkspace() {
                 </div>
               </SurfaceCard>
             ) : (
-              <>
                 <SurfaceCard className="p-6">
                   <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
                     <div>
-                      <h2 className="text-xl font-semibold text-slate-900 dark:text-white">Bảng kết quả</h2>
+                      <h2 className="text-xl font-bold text-black dark:text-white">
+                        Bảng kết quả {corrections.size > 0 && <span className="ml-2 rounded-full bg-amber-500/15 px-2.5 py-1 text-xs font-bold text-amber-600 dark:text-amber-400">Đã chỉnh sửa</span>}
+                      </h2>
                       <p className="text-sm text-slate-600 dark:text-slate-300/72">
                         Cùng một kết quả, nhiều góc nhìn: nhãn, nhóm và WBC differential.
                       </p>
@@ -711,8 +1011,8 @@ export function AnalysisWorkspace() {
                           type="button"
                           onClick={() => setActiveTab(tab.key)}
                           className={`rounded-full px-4 py-2 text-sm font-medium transition ${activeTab === tab.key
-                              ? "bg-[linear-gradient(135deg,#be123c,#ef4444)] text-slate-900 dark:text-white"
-                              : "border border-black/10 dark:border-white/10 bg-slate-50 dark:bg-white/[0.04] text-slate-800 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/[0.08]"
+                            ? "bg-[linear-gradient(135deg,#be123c,#ef4444)] text-slate-900 dark:text-white"
+                            : "border border-black/10 dark:border-white/10 bg-slate-50 dark:bg-white/[0.04] text-slate-800 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/[0.08]"
                             }`}
                         >
                           {tab.label}
@@ -722,13 +1022,14 @@ export function AnalysisWorkspace() {
                   </div>
 
                   <ResultTable
-                    rows={getRowsForTab(result, activeTab)}
+                    rows={getCorrectedRowsForTab(activeTab)}
                     emptyMessage="Không có dữ liệu cho mục này."
                   />
-                </SurfaceCard>
 
-                <ClinicalFlags result={result} rules={clinicalFlagRules} />
-              </>
+                  <div className="mt-6">
+                    <ClinicalFlags result={result} rules={clinicalFlagRules} />
+                  </div>
+                </SurfaceCard>
             )}
           </section>
         ) : null}

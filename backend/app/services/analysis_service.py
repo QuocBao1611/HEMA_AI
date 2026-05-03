@@ -892,11 +892,7 @@ def run_yolo_unified_analysis(
 
         raw_label = class_names[cls]
         grouped_label = DIAGNOSTIC_GROUP_BY_LABEL.get(raw_label, raw_label)
-        _count_thresh = (
-            BEST9_CONFIDENCE_THRESHOLD
-            if model_id == "best9"
-            else confidence_threshold
-        )
+        _count_thresh = BEST9_CONFIDENCE_THRESHOLD if confidence_threshold <= 0.0 else confidence_threshold
         counted = conf >= _count_thresh
 
         # Use the actual probability vector from ONNX

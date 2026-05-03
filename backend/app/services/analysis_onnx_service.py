@@ -187,8 +187,8 @@ class Best9ONNXService:
         pl = (self.imgsz - nw) // 2
         canvas[pt:pt+nh, pl:pl+nw] = resized
 
-        rgb    = cv2.cvtColor(canvas, cv2.COLOR_BGR2RGB)
-        tensor = rgb.astype(np.float32) / 255.0
+        # canvas is already RGB because it's built from PIL RGB image
+        tensor = canvas.astype(np.float32) / 255.0
         tensor = np.transpose(tensor, (2, 0, 1))[np.newaxis]  # NCHW
 
         meta = {"scale": scale, "pad_top": pt, "pad_left": pl,

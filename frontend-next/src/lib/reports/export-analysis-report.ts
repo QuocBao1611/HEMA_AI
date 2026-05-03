@@ -24,6 +24,38 @@ type ExportReportOptions = {
   rules?: ClinicalFlagRule[];
 };
 
+let fontRegularBase64: string | null = null;
+let fontBoldBase64: string | null = null;
+
+async function loadFonts() {
+  if (fontRegularBase64 && fontBoldBase64) return;
+  
+  try {
+    const [regRes, boldRes] = await Promise.all([
+      fetch("/fonts/Roboto-Regular.ttf"),
+      fetch("/fonts/Roboto-Bold.ttf")
+    ]);
+    
+    const regBuffer = await regRes.arrayBuffer();
+    const boldBuffer = await boldRes.arrayBuffer();
+    
+    const bufferToBase64 = (buffer: ArrayBuffer) => {
+      let binary = "";
+      const bytes = new Uint8Array(buffer);
+      const len = bytes.byteLength;
+      for (let i = 0; i < len; i++) {
+        binary += String.fromCharCode(bytes[i]);
+      }
+      return window.btoa(binary);
+    };
+
+    fontRegularBase64 = bufferToBase64(regBuffer);
+    fontBoldBase64 = bufferToBase64(boldBuffer);
+  } catch (error) {
+    console.error("Failed to load PDF fonts:", error);
+  }
+}
+
 function drawHeader(doc: jsPDF, title: string, createdAt?: string) {
   doc.setFontSize(18);
   doc.text(title, 14, 18);
@@ -41,14 +73,27 @@ function getModelLabel(result: AnyReportResult) {
   return String(payload.selected_model_name || payload.model_name || "-");
 }
 
-export function exportAnalysisReport({
+export async function exportAnalysisReport({
   title,
   filename,
   createdAt,
   result,
   rules,
 }: ExportReportOptions) {
+  await loadFonts();
+
   const doc = new jsPDF();
+  
+  if (fontRegularBase64 && fontBoldBase64) {
+    doc.addFileToVFS("Roboto-Regular.ttf", fontRegularBase64);
+    doc.addFont("Roboto-Regular.ttf", "Roboto", "normal");
+    
+    doc.addFileToVFS("Roboto-Bold.ttf", fontBoldBase64);
+    doc.addFont("Roboto-Bold.ttf", "Roboto", "bold");
+    
+    doc.setFont("Roboto");
+  }
+
   drawHeader(doc, title, createdAt);
 
   const mode = String(result.mode || "unknown");
@@ -58,11 +103,14 @@ export function exportAnalysisReport({
     ["Model", getModelLabel(result)],
   ];
 
+  const commonTableStyles = fontRegularBase64 ? { font: "Roboto" } : {};
+
   autoTable(doc, {
     startY: 34,
     head: [["Trường", "Giá trị"]],
     body: baseRows,
     theme: "grid",
+    styles: commonTableStyles,
   });
 
   if (mode === "predict") {
@@ -77,6 +125,7 @@ export function exportAnalysisReport({
         formatPercent(item.confidence),
       ]),
       theme: "striped",
+      styles: commonTableStyles,
     });
     return save(doc, filename);
   }
@@ -96,6 +145,7 @@ export function exportAnalysisReport({
         row.top_group_label,
       ]),
       theme: "striped",
+      styles: commonTableStyles,
     });
     return save(doc, filename);
   }
@@ -115,6 +165,7 @@ export function exportAnalysisReport({
         ["Nhãn trội", payload.dominant_cell_type?.label || "-"],
       ],
       theme: "grid",
+      styles: commonTableStyles,
     });
 
     autoTable(doc, {
@@ -127,6 +178,7 @@ export function exportAnalysisReport({
         row.average_confidence ? formatPercent(row.average_confidence) : "-",
       ]),
       theme: "striped",
+      styles: commonTableStyles,
     });
 
     const flags = detectClinicalFlags(payload, rules);
@@ -141,6 +193,7 @@ export function exportAnalysisReport({
           flag.action,
         ]),
         theme: "grid",
+        styles: commonTableStyles,
       });
     }
   }

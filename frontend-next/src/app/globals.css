@@ -40,10 +40,7 @@ body {
   color: var(--foreground);
   font-family: var(--font-body);
   transition: background-color 0.3s ease, color 0.3s ease;
-  background-image:
-    radial-gradient(circle at top left, rgba(239, 68, 68, 0.08), transparent 26%),
-    radial-gradient(circle at 85% 18%, rgba(249, 115, 22, 0.05), transparent 18%),
-    linear-gradient(180deg, #f8fafc 0%, #f1f5f9 42%, #e2e8f0 100%);
+  background-image: none;
 }
 
 .dark body {

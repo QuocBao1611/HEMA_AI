@@ -32,3 +32,15 @@ notebooks/.ipynb_checkpoints/
 # === Hệ điều hành ===
 Thumbs.db
 .DS_Store
+
+# === Models (Large files) ===
+models/**/*.keras
+models/**/*.pt
+models/**/*.h5
+models/**/*.onnx
+models/**/*.data
+yolov13/
+best9_result.jpg
+*.onnx
+*.pt
+*.keras

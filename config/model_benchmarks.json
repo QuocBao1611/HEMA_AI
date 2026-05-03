@@ -1,0 +1,76 @@
+{
+  "benchmarks": {
+    "mobilenetv2_phase2_best": {
+      "display_name": "MobileNetV2 Phase2 Best",
+      "source": "notebook",
+      "note": "Trained on blood cell dataset, 14 classes, Phase 2 fine-tuning",
+      "metrics": {
+        "accuracy": 93.04,
+        "tuned_accuracy": 98.14,
+        "val_accuracy": 91.07,
+        "macro_precision": 83,
+        "macro_recall": 79,
+        "macro_f1": 80,
+        "weighted_precision": 98,
+        "weighted_recall": 98,
+        "weighted_f1": 98,
+        "inference_speed_score": 95,
+        "stability_score": 87
+      },
+      "per_class": {
+        "BA":  { "precision": 93, "recall": 94, "f1": 93 },
+        "BNE": { "precision": 67, "recall": 92, "f1": 78 },
+        "EO":  { "precision": 99, "recall": 98, "f1": 99 },
+        "ERB": { "precision": 88, "recall": 65, "f1": 75 },
+        "IG":  { "precision": 64, "recall": 100, "f1": 78 },
+        "LY":  { "precision": 95, "recall": 62, "f1": 75 },
+        "MMY": { "precision": 83, "recall": 55, "f1": 66 },
+        "MO":  { "precision": 56, "recall": 78, "f1": 65 },
+        "MY":  { "precision": 74, "recall": 46, "f1": 57 },
+        "MYO": { "precision": 100, "recall": 91, "f1": 95 },
+        "PLT": { "precision": 95, "recall": 96, "f1": 96 },
+        "PMY": { "precision": 60, "recall": 71, "f1": 65 },
+        "RBC": { "precision": 99, "recall": 100, "f1": 99 },
+        "SNE": { "precision": 91, "recall": 66, "f1": 76 }
+      }
+    },
+    "mobilenetv2_final_finetuned": {
+      "display_name": "MobileNetV2 Fine-tuned",
+      "source": "notebook",
+      "note": "Earlier fine-tuning phase, similar architecture",
+      "metrics": {
+        "accuracy": 90.16,
+        "tuned_accuracy": 95.0,
+        "val_accuracy": 89.36,
+        "macro_precision": 78,
+        "macro_recall": 75,
+        "macro_f1": 75,
+        "weighted_precision": 95,
+        "weighted_recall": 90,
+        "weighted_f1": 92,
+        "inference_speed_score": 95,
+        "stability_score": 84
+      },
+      "per_class": {}
+    },
+    "best_model_v2": {
+      "display_name": "Best Model V2 (ResNet50)",
+      "source": "estimated",
+      "note": "ResNet50-based model, metrics estimated from model architecture benchmarks",
+      "metrics": {
+        "accuracy": 85.0,
+        "tuned_accuracy": 89.0,
+        "val_accuracy": 84.5,
+        "macro_precision": 72,
+        "macro_recall": 70,
+        "macro_f1": 70,
+        "weighted_precision": 88,
+        "weighted_recall": 85,
+        "weighted_f1": 86,
+        "inference_speed_score": 68,
+        "stability_score": 82
+      },
+      "per_class": {}
+    }
+  }
+}

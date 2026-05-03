@@ -18,6 +18,7 @@ from backend.app.core.paths import (
     CLASS_NAMES_PATH,
     CLASSIFIER_MODELS_DIR,
     DATASET_CLASSES_DIR_CANDIDATES,
+    DETECTOR_MODELS_DIR,
     IGNORED_ROOT_DIRS,
     MODEL_MANIFEST_PATH,
     PROJECT_ROOT,
@@ -40,6 +41,7 @@ class LoadedClassifier:
     num_classes: int
     class_names: list[str]
     preprocessing: str
+    unified: bool = False
 
     @property
     def input_shape(self) -> list[int]:
@@ -80,12 +82,21 @@ class YoloClassificationAdapter:
         vectors: list[np.ndarray] = []
         for result in results:
             probs = getattr(result, "probs", None)
-            if probs is None:
-                raise HTTPException(
-                    status_code=500,
-                    detail="Best9 YOLO không trả về xác suất phân loại. Hãy kiểm tra checkpoint có phải YOLO classification model không.",
-                )
-            vectors.append(probs.data.detach().cpu().numpy().astype(np.float32))
+            if probs is not None:
+                vectors.append(probs.data.detach().cpu().numpy().astype(np.float32))
+            else:
+                # Fallback for detection models (Unified models like Best9)
+                nc = getattr(model.model, "nc", 14)
+                vector = np.zeros(nc, dtype=np.float32)
+                boxes = getattr(result, "boxes", None)
+                if boxes is not None and len(boxes) > 0:
+                    # Take the box with highest confidence
+                    best_idx = int(boxes.conf.argmax())
+                    cls_id = int(boxes.cls[best_idx])
+                    conf = float(boxes.conf[best_idx])
+                    if 0 <= cls_id < nc:
+                        vector[cls_id] = conf
+                vectors.append(vector)
         return np.stack(vectors, axis=0)
 
 
@@ -98,23 +109,27 @@ def _clean_config(obj: Any) -> Any:
 
 
 def discover_model_paths() -> list[Path]:
-    search_dirs = [CLASSIFIER_MODELS_DIR]
-    if CLASSIFIER_MODELS_DIR != PROJECT_ROOT:
+    search_dirs = [CLASSIFIER_MODELS_DIR, DETECTOR_MODELS_DIR]
+    if PROJECT_ROOT not in search_dirs:
         search_dirs.append(PROJECT_ROOT)
 
     discovered_candidates: list[Path] = []
     for search_dir in search_dirs:
         if not search_dir.exists():
             continue
-        discovered_candidates.extend(
-            [path for path in search_dir.glob("*.h5") if "_sanitized" not in path.stem]
-        )
-        discovered_candidates.extend(
-            [path for path in search_dir.glob("*.keras") if "_sanitized" not in path.stem]
-        )
-        discovered_candidates.extend(
-            [path for path in search_dir.glob("*.pt") if "_sanitized" not in path.stem]
-        )
+            
+        is_detector_dir = (search_dir == DETECTOR_MODELS_DIR)
+        
+        for ext in ["*.h5", "*.keras", "*.pt"]:
+            for path in search_dir.glob(ext):
+                if "_sanitized" in path.stem:
+                    continue
+                
+                # Hide default generic detectors from classifier lists
+                if is_detector_dir and "yolov8n" in path.name.lower():
+                    continue
+                    
+                discovered_candidates.append(path)
 
     discovered = sorted(
         discovered_candidates,
@@ -218,6 +233,8 @@ def resolve_preprocessing_name(model_path: Path, manifest_entry: dict[str, Any])
         return "inception_v3"
     if "mobilenet" in stem:
         return "mobilenet_v2"
+    if model_path.suffix == ".pt" or "yolo" in stem:
+        return "yolo_classify"
     return DEFAULT_MODEL_PREPROCESSING
 
 
@@ -284,6 +301,7 @@ def serialize_classifier_info(classifier: LoadedClassifier) -> dict[str, Any]:
         "input_shape": classifier.input_shape,
         "num_classes": classifier.num_classes,
         "preprocessing": classifier.preprocessing,
+        "unified": classifier.unified,
     }
 
 
@@ -314,6 +332,15 @@ def initialize_classifier_registry() -> tuple[dict[str, LoadedClassifier], str]:
         class_names = load_class_names(num_classes)
 
         base_id = slugify_model_id(str(manifest_entry.get("model_id") or model_path.stem))
+        # Force "best9" ID for the unified model to match routing logic
+        if model_path.name == "best (9).pt" or model_path.stem == "best9":
+            base_id = "best9"
+            is_unified = True
+            input_height = 640
+            input_width = 640
+        else:
+            is_unified = False
+
         candidate_id = base_id
         suffix = 2
         while candidate_id in used_ids:
@@ -322,6 +349,9 @@ def initialize_classifier_registry() -> tuple[dict[str, LoadedClassifier], str]:
         used_ids.add(candidate_id)
 
         display_name = str(manifest_entry.get("display_name") or model_path.stem.replace("_", " "))
+        if candidate_id == "best9":
+            display_name = "Best9 YOLO (unified)"
+
         registry[candidate_id] = LoadedClassifier(
             model_id=candidate_id,
             display_name=display_name,
@@ -333,6 +363,7 @@ def initialize_classifier_registry() -> tuple[dict[str, LoadedClassifier], str]:
             num_classes=num_classes,
             class_names=class_names,
             preprocessing=resolve_preprocessing_name(model_path, manifest_entry),
+            unified=is_unified,
         )
 
     if not registry:

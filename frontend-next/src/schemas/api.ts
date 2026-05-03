@@ -58,6 +58,7 @@ export const systemInfoSchema = z.object({
   diagnostic_group_map: z.record(z.string(), z.string()),
   clinical_flag_rules: z.array(clinicalFlagRuleSchema),
   available_models: z.array(modelSummarySchema),
+  model_benchmarks: z.record(z.string(), z.any()).optional(),
   database: databaseHealthSchema,
 });
 

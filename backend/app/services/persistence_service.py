@@ -26,8 +26,8 @@ DEFAULT_CLINICAL_FLAG_RULES = [
         "field": "count",
         "threshold": 1,
         "severity": "critical",
-        "title": "Nghi ngo co te bao non bat thuong",
-        "action": "Can bac si huyet hoc xem lai tieu ban va doi chieu them voi lam sang.",
+        "title": "Nghi ngờ có tế bào non bất thường",
+        "action": "Cần bác sĩ huyết học xem lại tiêu bản và đối chiếu thêm với lâm sàng.",
     },
     {
         "key": "ne_high",
@@ -37,8 +37,8 @@ DEFAULT_CLINICAL_FLAG_RULES = [
         "field": "ratio",
         "threshold": 0.8,
         "severity": "warning",
-        "title": "Nghi ngo nhiem trung cap",
-        "action": "Nen doi chieu them voi CRP, Procalcitonin va cac chi so lam sang.",
+        "title": "Nghi ngờ nhiễm trùng cấp",
+        "action": "Nên đối chiếu thêm với CRP, Procalcitonin và các chỉ số lâm sàng.",
     },
     {
         "key": "eo_high",
@@ -48,8 +48,8 @@ DEFAULT_CLINICAL_FLAG_RULES = [
         "field": "ratio",
         "threshold": 0.08,
         "severity": "warning",
-        "title": "Tang bach cau ai toan",
-        "action": "Can xem xet di ung, ky sinh trung hoac benh ly tuy lien quan.",
+        "title": "Tăng bạch cầu ái toan",
+        "action": "Cần xem xét dị ứng, ký sinh trùng hoặc bệnh lý tủy liên quan.",
     },
     {
         "key": "erb_present",
@@ -59,8 +59,8 @@ DEFAULT_CLINICAL_FLAG_RULES = [
         "field": "count",
         "threshold": 1,
         "severity": "warning",
-        "title": "Phat hien hong cau co nhan",
-        "action": "Nen kiem tra them cac nguyen nhan thieu mau tan huyet hoac roi loan tuy.",
+        "title": "Phát hiện hồng cầu có nhân",
+        "action": "Nên kiểm tra thêm các nguyên nhân thiếu máu tán huyết hoặc rối loạn tủy.",
     },
     {
         "key": "ba_high",
@@ -70,8 +70,8 @@ DEFAULT_CLINICAL_FLAG_RULES = [
         "field": "ratio",
         "threshold": 0.03,
         "severity": "warning",
-        "title": "Tang bach cau ai kiem",
-        "action": "Can doi chieu them voi boi canh tang sinh tuy va cac chi so lien quan.",
+        "title": "Tăng bạch cầu ái kiềm",
+        "action": "Cần đối chiếu thêm với bối cảnh tăng sinh tủy và các chỉ số liên quan.",
     },
 ]
 

@@ -1,4 +1,6 @@
 from typing import Any
+import json
+from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
 
@@ -32,30 +34,12 @@ router = APIRouter(prefix="/api/v1", tags=["system"])
 alias_router = APIRouter(tags=["system"])
 
 
-def _best9_model_entry() -> dict:
-    """Build the virtual model entry for best9 unified detector."""
-    return {
-        "model_id": "best9",
-        "display_name": "Best9 YOLO (unified)",
-        "model_path": "best (9).pt",
-        "loaded_model_path": "best (9).pt",
-        "input_shape": [640, 640, 3],
-        "num_classes": len(BEST9_CLASS_LIST),
-        "preprocessing": "yolo_detect",
-        "unified": True,
-        "note": "Unified detect+classify — không cần classifier riêng",
-    }
+
 
 
 def _build_available_models() -> list:
-    """Return classifier models + best9 unified entry."""
-    models = [serialize_classifier_info(c) for c in get_classifier_registry().values()]
-    # Append best9 only if the file exists in detectors
-    for det in list_detector_models():
-        if is_unified_detector(det["detector_model_id"]):
-            models.append(_best9_model_entry())
-            break
-    return models
+    """Return classifier models (Best9 is now included in registry)."""
+    return [serialize_classifier_info(c) for c in get_classifier_registry().values()]
 
 
 @router.get("/", include_in_schema=False)
@@ -89,6 +73,17 @@ def health() -> dict[str, Any]:
     }
 
 
+def _load_model_benchmarks() -> dict:
+    """Load model benchmarks from config file if available."""
+    try:
+        benchmark_path = Path("config/model_benchmarks.json")
+        if benchmark_path.exists():
+            with open(benchmark_path, "r", encoding="utf-8") as f:
+                return json.load(f).get("benchmarks", {})
+    except Exception:
+        pass
+    return {}
+
 @router.get("/info")
 def info() -> dict[str, Any]:
     default_classifier = get_default_classifier()
@@ -110,6 +105,7 @@ def info() -> dict[str, Any]:
         "diagnostic_group_map": DIAGNOSTIC_GROUP_BY_LABEL,
         "clinical_flag_rules": load_clinical_flag_rules(),
         "available_models": _build_available_models(),
+        "model_benchmarks": _load_model_benchmarks(),
         "database": database_health(),
     }
 

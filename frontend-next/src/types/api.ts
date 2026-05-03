@@ -29,6 +29,28 @@ export type HealthResponse = {
   database: DatabaseHealth;
 };
 
+export type ModelBenchmarkMetrics = {
+  accuracy: number;
+  tuned_accuracy?: number;
+  val_accuracy?: number;
+  macro_precision?: number;
+  macro_recall?: number;
+  macro_f1?: number;
+  weighted_precision?: number;
+  weighted_recall?: number;
+  weighted_f1?: number;
+  inference_speed_score?: number;
+  stability_score?: number;
+};
+
+export type ModelBenchmark = {
+  display_name: string;
+  source: string;
+  note?: string;
+  metrics: ModelBenchmarkMetrics;
+  per_class?: Record<string, { precision: number; recall: number; f1: number }>;
+};
+
 export type SystemInfoResponse = {
   default_model_id: string;
   default_model_name: string;
@@ -44,6 +66,7 @@ export type SystemInfoResponse = {
   diagnostic_group_map: Record<string, string>;
   clinical_flag_rules: ClinicalFlagRule[];
   available_models: ModelSummary[];
+  model_benchmarks?: Record<string, ModelBenchmark>;
   database: DatabaseHealth;
 };
 
