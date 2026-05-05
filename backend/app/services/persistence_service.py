@@ -19,59 +19,93 @@ from backend.app.services.classifier_service import (
 CLINICAL_FLAG_SETTINGS_KEY = "clinical_flag_rules"
 DEFAULT_CLINICAL_FLAG_RULES = [
     {
+        # Tế bào non (IG): Bất kỳ số lượng nào trong mẫu đủ lớn là bất thường
+        # Yêu cầu confidence TB >= 40% để tránh báo nhầm từ những ô phân loại yếu
         "key": "ig_present",
         "enabled": True,
         "label": "IG",
         "source": "grouped_counts",
         "field": "count",
         "threshold": 1,
+        "min_avg_confidence": 0.40,
         "severity": "critical",
         "title": "Nghi ngờ có tế bào non bất thường",
         "action": "Cần bác sĩ huyết học xem lại tiêu bản và đối chiếu thêm với lâm sàng.",
     },
     {
+        # Neutrophil cao: ngưỡng lâm sàng >= 75% trong WBC differential
+        # Cần ít nhất 10 WBC phân loại để tỉ lệ có ý nghĩa thống kê
+        # warn_threshold: 70-75% = borderline (info), >75% = cảnh báo chính thức
         "key": "ne_high",
         "enabled": True,
         "label": "NE",
         "source": "wbc_differential",
         "field": "ratio",
-        "threshold": 0.8,
+        "threshold": 0.75,
+        "warn_threshold": 0.70,
+        "min_sample": 10,
         "severity": "warning",
         "title": "Nghi ngờ nhiễm trùng cấp",
         "action": "Nên đối chiếu thêm với CRP, Procalcitonin và các chỉ số lâm sàng.",
     },
     {
+        # Eosinophil cao: ngưỡng lâm sàng >= 5% (bình thường 1-4%)
+        # Cần ít nhất 10 WBC, warn_threshold 3% = borderline
         "key": "eo_high",
         "enabled": True,
         "label": "EO",
         "source": "wbc_differential",
         "field": "ratio",
-        "threshold": 0.08,
+        "threshold": 0.05,
+        "warn_threshold": 0.03,
+        "min_sample": 10,
         "severity": "warning",
         "title": "Tăng bạch cầu ái toan",
         "action": "Cần xem xét dị ứng, ký sinh trùng hoặc bệnh lý tủy liên quan.",
     },
     {
+        # Hồng cầu có nhân (ERB/nRBC): bất kỳ số lượng nào ở người lớn là bất thường
+        # Yêu cầu confidence TB >= 40%
         "key": "erb_present",
         "enabled": True,
         "label": "ERB",
         "source": "estimated_counts",
         "field": "count",
         "threshold": 1,
+        "min_avg_confidence": 0.40,
         "severity": "warning",
         "title": "Phát hiện hồng cầu có nhân",
         "action": "Nên kiểm tra thêm các nguyên nhân thiếu máu tán huyết hoặc rối loạn tủy.",
     },
     {
+        # Basophil cao: ngưỡng lâm sàng >= 1% (bình thường <1%)
+        # Cần ít nhất 10 WBC, warn_threshold 0.5% = borderline
         "key": "ba_high",
         "enabled": True,
         "label": "BA",
         "source": "wbc_differential",
         "field": "ratio",
-        "threshold": 0.03,
+        "threshold": 0.01,
+        "warn_threshold": 0.005,
+        "min_sample": 10,
         "severity": "warning",
         "title": "Tăng bạch cầu ái kiềm",
         "action": "Cần đối chiếu thêm với bối cảnh tăng sinh tủy và các chỉ số liên quan.",
+    },
+    {
+        # Monocyte cao: >= 12% trong WBC differential (bình thường 2-8%)
+        # Cần ít nhất 10 WBC
+        "key": "mo_high",
+        "enabled": True,
+        "label": "MO",
+        "source": "wbc_differential",
+        "field": "ratio",
+        "threshold": 0.12,
+        "warn_threshold": 0.10,
+        "min_sample": 10,
+        "severity": "warning",
+        "title": "Tăng bạch cầu đơn nhân",
+        "action": "Cần xem xét nhiễm virus, lao, hoặc bệnh lý tự miễn.",
     },
 ]
 
@@ -418,7 +452,7 @@ def list_recent_analyses_filtered(
                     "classified_cell_count": row.classified_cell_count,
                     "average_confidence": row.average_confidence,
                     "dominant_label": row.dominant_label,
-                    "created_at": row.created_at.isoformat(),
+                    "created_at": row.created_at.isoformat() if row.created_at.tzinfo else f"{row.created_at.isoformat()}Z",
                 }
                 for row in rows
             ]
@@ -453,7 +487,7 @@ def get_analysis_record(record_id: int) -> dict[str, Any] | None:
                 "request_payload": row.request_payload,
                 "result_payload": row.result_payload,
                 "notes": row.notes,
-                "created_at": row.created_at.isoformat(),
+                "created_at": row.created_at.isoformat() if row.created_at.tzinfo else f"{row.created_at.isoformat()}Z",
             }
     except SQLAlchemyError:
         return None

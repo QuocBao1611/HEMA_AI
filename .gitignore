@@ -21,6 +21,8 @@ logs/
 *.sqlite3
 _inspect_*/
 *.zip
+scratch/
+files*_extracted/
 
 # === Biến môi trường ===
 .env

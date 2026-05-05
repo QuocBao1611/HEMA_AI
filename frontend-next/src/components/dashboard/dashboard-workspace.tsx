@@ -187,7 +187,7 @@ export function DashboardWorkspace() {
           </div>
 
           <Button
-            variant="outline"
+            variant="secondary"
             className="bg-white dark:bg-white/5 border-slate-200 dark:border-white/10"
             onClick={() => void dashboardQuery.refetch()}
             disabled={dashboardQuery.isFetching}
@@ -495,8 +495,8 @@ export function DashboardWorkspace() {
                 <div className="flex items-center gap-3">
                   {detailQuery.data && (
                     <Button
-                      variant="default"
-                      className="bg-red-600 hover:bg-red-700 text-white shadow-md shadow-red-500/20"
+                      variant="primary"
+                      className="bg-red-600 hover:bg-red-700 text-white shadow-md shadow-red-900/20"
                       onClick={() =>
                         exportAnalysisReport({
                           title: "HemaVision History Report",

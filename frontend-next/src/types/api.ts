@@ -77,9 +77,13 @@ export type ClinicalFlagRule = {
   source: "estimated_counts" | "grouped_counts" | "wbc_differential" | string;
   field: "count" | "ratio" | string;
   threshold: number;
-  severity: "critical" | "warning" | string;
+  severity: "critical" | "warning" | "info" | string;
   title: string;
   action: string;
+  // Accuracy guards (optional, used by frontend evaluation logic)
+  min_sample?: number;          // Minimum total cells in source for ratio rules
+  min_avg_confidence?: number;  // Minimum avg confidence of triggering cells
+  warn_threshold?: number;      // If set, value between this and threshold = "info" level
 };
 
 export type ClinicalFlagSettingsResponse = {

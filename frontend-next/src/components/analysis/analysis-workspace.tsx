@@ -39,6 +39,7 @@ import { ClinicalFlags } from "@/components/analysis/clinical-flags";
 import { DetectionOverlay } from "@/components/analysis/detection-overlay";
 import { ResultTable } from "@/components/analysis/result-table";
 import { CellReviewGallery, type CellCorrection } from "@/components/analysis/cell-review-gallery";
+import { AnalysisProgressBar } from "@/components/analysis/analysis-progress-bar";
 import { exportAnalysisReport } from "@/lib/reports/export-analysis-report";
 
 type AnalysisFormValues = {
@@ -62,7 +63,7 @@ const WBC_DIFFERENTIAL_LABELS = new Set(["BA", "EO", "IG", "LY", "MO", "NE"]);
 function recomputeCounts(
   result: AnalyzeResponse,
   corrections: Map<number, CellCorrection>,
-): { estimated_counts: CountRow[]; grouped_counts: CountRow[]; wbc_differential: CountRow[] } {
+): { estimated_counts: CountRow[]; grouped_counts: CountRow[]; wbc_differential: CountRow[]; total_classified: number; total_detected: number; average_confidence: number } {
   const regions = result.region_predictions ?? [];
   const threshold = result.confidence_threshold ?? 0;
 
@@ -131,7 +132,7 @@ function recomputeCounts(
     .sort((a, b) => b.count - a.count || b.average_confidence! - a.average_confidence!);
 
   const totalDetected = regions.length;
-  const avgConf = totalClassified > 0 
+  const avgConf = totalClassified > 0
     ? Array.from(rawBuckets.values()).reduce((s, b) => s + b.confSum, 0) / totalClassified
     : 0;
 
@@ -265,8 +266,8 @@ function CustomModelSelect({ availableModels, form }: { availableModels: any[], 
                   setIsOpen(false);
                 }}
                 className={`flex items-center px-4 py-3 text-sm cursor-pointer transition-colors ${selectedModelId === model.model_id
-                    ? "bg-slate-100 dark:bg-white/10 text-slate-900 dark:text-white font-bold"
-                    : "text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/5"
+                  ? "bg-slate-100 dark:bg-white/10 text-slate-900 dark:text-white font-bold"
+                  : "text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/5"
                   }`}
               >
                 {model.display_name}
@@ -286,6 +287,7 @@ export function AnalysisWorkspace() {
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [activeTab, setActiveTab] = useState<ResultTabKey>("counts");
   const [corrections, setCorrections] = useState<Map<number, CellCorrection>>(new Map());
+  const [highlightedIds, setHighlightedIds] = useState<Set<number>>(new Set());
 
   const handleCorrect = useCallback((regionId: number, newLabel: string) => {
     if (!result || result.mode !== "analyze") return;
@@ -305,6 +307,16 @@ export function AnalysisWorkspace() {
       next.delete(regionId);
       return next;
     });
+  }, []);
+
+  const handleFlagClick = useCallback((ids: Set<number>) => {
+    setHighlightedIds(ids);
+    setTimeout(() => {
+      document.getElementById("detection-map")?.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
+    }, 80);
   }, []);
 
   const correctedResult = useMemo(() => {
@@ -351,6 +363,12 @@ export function AnalysisWorkspace() {
       setResult(data);
       setActiveTab("counts");
       toast.success("Đã hoàn tất phân tích slide.");
+      setTimeout(() => {
+        document.getElementById("analysis-results")?.scrollIntoView({
+          behavior: "smooth",
+          block: "start",
+        });
+      }, 150);
     },
     onError: (mutationError) => {
       toast.error(
@@ -417,16 +435,16 @@ export function AnalysisWorkspace() {
 
   const handleAddDetection = useCallback(async (box: { x: number; y: number; width: number; height: number }) => {
     if (!previewUrl || !selectedModel) return;
-    
+
     const toastId = toast.loading("Đang nhận diện tế bào vừa vẽ...");
 
     try {
       // 1. Crop the original image
-      const img = new Image();
+      const img = new window.Image();
       img.crossOrigin = "anonymous";
       img.src = previewUrl;
-      await new Promise((resolve, reject) => { 
-        img.onload = resolve; 
+      await new Promise((resolve, reject) => {
+        img.onload = resolve;
         img.onerror = reject;
       });
 
@@ -437,7 +455,7 @@ export function AnalysisWorkspace() {
       if (!ctx) throw new Error("Canvas context failed");
 
       ctx.drawImage(img, box.x, box.y, box.width, box.height, 0, 0, box.width, box.height);
-      
+
       const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.95));
       if (!blob) throw new Error("Canvas toBlob failed");
 
@@ -457,23 +475,24 @@ export function AnalysisWorkspace() {
       // 3. Update UI state with actual label
       setResult((prev) => {
         if (!prev || prev.mode !== "analyze" || !prev.region_predictions) return prev;
-        
+
         const currentIds = prev.region_predictions.map(rp => rp.region_id).filter(id => id !== undefined) as number[];
         const nextId = currentIds.length > 0 ? Math.max(...currentIds) + 1 : 1;
-        
+
         const newDetection = {
           region_id: nextId,
           box: box,
           label: prediction.label,
           confidence: prediction.confidence,
+          class_index: 0,
         };
-        
+
         return {
           ...prev,
           region_predictions: [...prev.region_predictions, newDetection],
         };
       });
-      
+
       toast.success(`Đã nhận diện: ${prediction.label} (${(prediction.confidence * 100).toFixed(0)}%)`, { id: toastId });
     } catch (e) {
       console.error("Auto-predict failed:", e);
@@ -484,7 +503,7 @@ export function AnalysisWorkspace() {
         const nextId = currentIds.length > 0 ? Math.max(...currentIds) + 1 : 1;
         return {
           ...prev,
-          region_predictions: [...prev.region_predictions, { region_id: nextId, box: box, label: "RBC", confidence: 1.0 }],
+          region_predictions: [...prev.region_predictions, { region_id: nextId, box: box, label: "RBC", confidence: 1.0, class_index: 0 }],
         };
       });
       toast.error("Không thể nhận diện tự động, đã gán nhãn mặc định là RBC", { id: toastId });
@@ -523,7 +542,7 @@ export function AnalysisWorkspace() {
   // Auto-apply optimal params when model changes
   useEffect(() => {
     if (!selectedModel) return;
-    
+
     // Find matching optimal config
     const optimal = Object.entries(OPTIMAL_PARAMS).find(([key]) => selectedModel.includes(key));
     if (optimal) {
@@ -682,11 +701,10 @@ export function AnalysisWorkspace() {
 
             <div
               {...getRootProps()}
-              className={`relative rounded-[28px] border-2 border-dashed p-6 transition ${
-                isDragActive
+              className={`relative rounded-[28px] border-2 border-dashed p-6 transition ${isDragActive
                   ? "border-blue-400 bg-blue-50/50 dark:border-blue-500 dark:bg-white/10"
                   : "border-slate-300 dark:border-white/20 bg-slate-50 dark:bg-slate-950/36 hover:border-blue-300 dark:hover:border-white/30 hover:bg-slate-100 dark:hover:bg-white/[0.04]"
-              }`}
+                }`}
             >
               <input {...getInputProps()} />
 
@@ -811,34 +829,33 @@ export function AnalysisWorkspace() {
               </label>
             </div>
 
-            <div className="mt-6 grid gap-3 sm:grid-cols-2">
+            <div className="mt-6">
               <Button
                 onClick={() => void submit("analyze")}
                 disabled={isSubmitting || !selectedFile}
-                className="w-full"
+                className="w-full h-14 text-base relative overflow-hidden transition-all duration-300 shadow-md hover:shadow-lg"
               >
-                {analyzeMutation.isPending ? (
-                  <LoaderCircle className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <Microscope className="mr-2 h-4 w-4" />
+                {analyzeMutation.isPending && (
+                  <div className="absolute inset-0 bg-white/20 dark:bg-black/20 animate-pulse" />
                 )}
-                Phân tích slide
-              </Button>
-
-              <Button
-                variant="secondary"
-                onClick={() => void submit("predict")}
-                disabled={isSubmitting || !selectedFile}
-                className="w-full"
-              >
-                {predictMutation.isPending ? (
-                  <LoaderCircle className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <BrainCircuit className="mr-2 h-4 w-4" />
-                )}
-                Dự đoán nhanh
+                <div className="relative flex items-center justify-center">
+                  {analyzeMutation.isPending ? (
+                    <>
+                      <LoaderCircle className="mr-2 h-6 w-6 animate-spin" />
+                      <span className="font-bold tracking-wide">Đang phân tích...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Microscope className="mr-2 h-6 w-6" />
+                      <span className="font-bold tracking-wide">Bắt đầu Phân tích</span>
+                    </>
+                  )}
+                </div>
               </Button>
             </div>
+
+            {/* Real-time progress bar */}
+            <AnalysisProgressBar isPending={analyzeMutation.isPending} />
             {!selectedFile ? (
               <p className="mt-3 text-center text-xs font-medium text-slate-500 dark:text-slate-400">
                 Chọn ảnh để bật các nút phân tích.
@@ -852,7 +869,7 @@ export function AnalysisWorkspace() {
         </section>
 
         {result ? (
-          <section className="space-y-6">
+          <section className="space-y-6" id="analysis-results">
             <SurfaceCard className="p-6">
               <div className="mb-5 flex flex-wrap items-start justify-between gap-4">
                 <div>
@@ -917,7 +934,7 @@ export function AnalysisWorkspace() {
             </SurfaceCard>
 
             {result.mode === "analyze" && previewUrl && result.region_predictions?.length ? (
-              <SurfaceCard className="p-6">
+              <SurfaceCard className="p-6" id="detection-map">
                 <div className="mb-5 flex items-center gap-3">
                   <div className="inline-flex rounded-2xl border border-red-400/20 bg-red-50 dark:bg-red-500/10 p-3 text-red-600 dark:text-red-100">
                     <Microscope className="h-5 w-5" />
@@ -938,6 +955,9 @@ export function AnalysisWorkspace() {
                     confidence: rp.confidence,
                   }))}
                   onAddDetection={handleAddDetection}
+                  onDeleteDetection={handleDeleteDetection}
+                  highlightedIds={highlightedIds}
+                  onClearHighlight={() => setHighlightedIds(new Set())}
                 />
               </SurfaceCard>
             ) : null}
@@ -989,47 +1009,52 @@ export function AnalysisWorkspace() {
                 </div>
               </SurfaceCard>
             ) : (
-                <SurfaceCard className="p-6">
-                  <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <h2 className="text-xl font-bold text-black dark:text-white">
-                        Bảng kết quả {corrections.size > 0 && <span className="ml-2 rounded-full bg-amber-500/15 px-2.5 py-1 text-xs font-bold text-amber-600 dark:text-amber-400">Đã chỉnh sửa</span>}
-                      </h2>
-                      <p className="text-sm text-slate-600 dark:text-slate-300/72">
-                        Cùng một kết quả, nhiều góc nhìn: nhãn, nhóm và WBC differential.
-                      </p>
-                    </div>
-
-                    <div className="flex flex-wrap gap-2">
-                      {([
-                        { key: "counts", label: "Theo nhãn" },
-                        { key: "groups", label: "Nhóm chẩn đoán" },
-                        { key: "wbc", label: "Tỷ lệ WBC" },
-                      ] as Array<{ key: ResultTabKey; label: string }>).map((tab) => (
-                        <button
-                          key={tab.key}
-                          type="button"
-                          onClick={() => setActiveTab(tab.key)}
-                          className={`rounded-full px-4 py-2 text-sm font-medium transition ${activeTab === tab.key
-                            ? "bg-[linear-gradient(135deg,#be123c,#ef4444)] text-slate-900 dark:text-white"
-                            : "border border-black/10 dark:border-white/10 bg-slate-50 dark:bg-white/[0.04] text-slate-800 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/[0.08]"
-                            }`}
-                        >
-                          {tab.label}
-                        </button>
-                      ))}
-                    </div>
+              <SurfaceCard className="p-6">
+                <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <h2 className="text-xl font-bold text-black dark:text-white">
+                      Bảng kết quả {corrections.size > 0 && <span className="ml-2 rounded-full bg-amber-500/15 px-2.5 py-1 text-xs font-bold text-amber-600 dark:text-amber-400">Đã chỉnh sửa</span>}
+                    </h2>
+                    <p className="text-sm text-slate-600 dark:text-slate-300/72">
+                      Cùng một kết quả, nhiều góc nhìn: nhãn, nhóm và WBC differential.
+                    </p>
                   </div>
 
-                  <ResultTable
-                    rows={getCorrectedRowsForTab(activeTab)}
-                    emptyMessage="Không có dữ liệu cho mục này."
+                  <div className="flex flex-wrap gap-2">
+                    {([
+                      { key: "counts", label: "Theo nhãn" },
+                      { key: "groups", label: "Nhóm chẩn đoán" },
+                      { key: "wbc", label: "Tỷ lệ WBC" },
+                    ] as Array<{ key: ResultTabKey; label: string }>).map((tab) => (
+                      <button
+                        key={tab.key}
+                        type="button"
+                        onClick={() => setActiveTab(tab.key)}
+                        className={`rounded-full px-4 py-2 text-sm font-medium transition ${activeTab === tab.key
+                          ? "bg-[linear-gradient(135deg,#be123c,#ef4444)] text-slate-900 dark:text-white"
+                          : "border border-black/10 dark:border-white/10 bg-slate-50 dark:bg-white/[0.04] text-slate-800 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/[0.08]"
+                          }`}
+                      >
+                        {tab.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <ResultTable
+                  rows={getCorrectedRowsForTab(activeTab)}
+                  emptyMessage="Không có dữ liệu cho mục này."
+                />
+
+                <div className="mt-6">
+                  <ClinicalFlags
+                    result={{ ...result, ...(correctedResult || {}) }}
+                    rules={clinicalFlagRules}
+                    corrections={corrections}
+                    onFlagClick={handleFlagClick}
                   />
-
-                  <div className="mt-6">
-                    <ClinicalFlags result={result} rules={clinicalFlagRules} />
-                  </div>
-                </SurfaceCard>
+                </div>
+              </SurfaceCard>
             )}
           </section>
         ) : null}

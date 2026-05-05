@@ -1,95 +1,55 @@
-# Chạy dự án HemaVision AI
+# Hướng dẫn chạy HemaVision AI
 
-## ▶️ Cách chạy nhanh nhất (Khuyến nghị)
-
-Double-click vào file:
-
-```
-start_app.bat
-```
-
-Script tự động làm tất cả:
-1. Kiểm tra `.venv` — tạo nếu chưa có
-2. Cài Python dependencies (`requirements.txt`) nếu thiếu
-3. Cài Node.js dependencies (`npm install`) nếu thiếu
-4. Chạy Alembic database migrations
-5. Giải phóng port 8000 và 3000 nếu đang bị chiếm
-6. Khởi động **Backend** trong cửa sổ riêng (xanh)
-7. Khởi động **Frontend** trong cửa sổ riêng (vàng)
-8. Tự mở trình duyệt tại `http://localhost:3000`
+Dự án có 2 thành phần chính: Backend (FastAPI) và Frontend (Next.js). Dưới đây là các cách để khởi động.
 
 ---
 
-## 🔗 Địa chỉ truy cập
+## ⚡ Cách 1: Nhanh nhất (One-Click)
 
-| Dịch vụ | URL |
-|---|---|
-| Frontend | http://localhost:3000 |
-| Backend API | http://127.0.0.1:8000 |
-| API Docs (Swagger) | http://127.0.0.1:8000/docs |
+Click đúp vào file `start_app.bat` tại thư mục gốc.
 
-**Tài khoản mặc định:** `admin` / `admin123`
+Hệ thống sẽ tự động:
+1. Kích hoạt môi trường ảo Python.
+2. Kiểm tra/cài đặt Node.js packages.
+3. Chạy lệnh tắt các Port bị kẹt.
+4. Mở cửa sổ chạy Backend (Port 8000).
+5. Mở cửa sổ chạy Frontend (Port 3000).
+6. Tự động mở trình duyệt.
+
+> Để dừng hệ thống, bạn chỉ cần đóng 2 cửa sổ Console màu đen sinh ra.
 
 ---
 
-## 🛠️ Chạy từng phần (nếu cần debug riêng)
+## 🛠 Cách 2: Chạy riêng lẻ (Dành cho Dev)
 
-**Backend:**
-```bat
+Bạn cần mở 2 cửa sổ Terminal (hoặc PowerShell).
+
+### 1. Chạy Backend (Cửa sổ 1)
+Khởi động Backend FastAPI:
+```powershell
+# Chạy file batch dựng sẵn
 start_server.bat
 ```
-
-**Frontend:**
-```bat
-start_frontend.bat
-```
-
----
-
-## 📦 Chuẩn bị thủ công (lần đầu tiên)
-
-Nếu `start_app.bat` báo lỗi, chuẩn bị thủ công:
-
+Hoặc chạy lệnh thủ công:
 ```powershell
-# 1. Tạo virtual environment
-python -m venv .venv
-
-# 2. Cài Python packages
-.venv\Scripts\python -m pip install -r requirements.txt
-
-# 3. Cài Node packages
-cd frontend-next
-npm install
-cd ..
-
-# 4. Chạy database migrations
-.venv\Scripts\alembic upgrade head
+.venv\Scripts\python -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
----
-
-## ✅ Kiểm tra hệ thống
-
+### 2. Chạy Frontend (Cửa sổ 2)
 ```powershell
-# Backend tests (phải pass >= 27 tests)
-.venv\Scripts\python -m pytest -q
-
-# Frontend lint + typecheck
 cd frontend-next
-npm.cmd run lint
-npm.cmd run typecheck
+npm run dev
 ```
 
 ---
 
-## 🗄️ Database
+## 🔑 Tài khoản đăng nhập
+- Tên đăng nhập mặc định: `admin`
+- Mật khẩu mặc định: `admin123`
 
-Mặc định dùng **SQLite** — không cần cài MySQL hay XAMPP.
+---
 
-Database file: `data/hemavision.sqlite3` (tự tạo khi khởi động lần đầu)
-
-Nếu muốn dùng MySQL:
-```env
-# Thay dòng này trong .env
-DATABASE_URL=mysql+pymysql://root:@127.0.0.1:3306/hemavision?charset=utf8mb4
-```
+## 📂 Lưu ý về Model AI
+Hệ thống cần các file mô hình nhận diện trong thư mục `models/` để hoạt động đúng. Đảm bảo bạn đã tải và giải nén các file mô hình vào:
+- `models/detectors/` (chứa `best9.onnx`, `yolov8n-bccd.pt`)
+- `models/classifiers/` (chứa `best_model_v2.keras`, v.v.)

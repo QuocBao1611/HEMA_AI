@@ -18,15 +18,16 @@ Chart.register(...registerables);
 
 interface Metric {
   label: string;
-  a: number;
-  b: number;
+  values: number[];
   unit?: string;
 }
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
-const COLOR_A = "#378ADD";
-const COLOR_B = "#1D9E75";
+const MODEL_COLORS = ["#378ADD", "#1D9E75", "#E8590C"];
+const COLOR_A = MODEL_COLORS[0];
+const COLOR_B = MODEL_COLORS[1];
+const COLOR_C = MODEL_COLORS[2];
 const RADAR_LABELS = ["Độ tự tin (Thực tế)", "Độ chính xác", "Độ chuẩn xác", "Độ bao phủ", "Điểm F1", "Tốc độ", "Độ ổn định"];
 
 // ─── Sub-components ──────────────────────────────────────────────────────────
@@ -120,31 +121,26 @@ function ModelCard({
   );
 }
 
-function SummaryCard({ label, a, b, nameA, nameB }: { label: string; a: string; b: string; nameA: string; nameB: string }) {
+function SummaryCard({ label, values, names }: { label: string; values: string[]; names: string[] }) {
   return (
     <div className="rounded-xl bg-muted/50 p-4">
       <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-foreground/40">{label}</p>
       <div className="flex flex-col gap-2">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-1.5 overflow-hidden">
-            <div className="h-2 w-2 shrink-0 rounded-full" style={{ background: COLOR_A }} />
-            <span className="text-xs text-foreground/60 truncate">{nameA}</span>
+        {values.map((v, i) => (
+          <div key={names[i]} className="flex items-center justify-between">
+            <div className="flex items-center gap-1.5 overflow-hidden">
+              <div className="h-2 w-2 shrink-0 rounded-full" style={{ background: MODEL_COLORS[i] }} />
+              <span className="text-xs text-foreground/60 truncate">{names[i]}</span>
+            </div>
+            <span className="text-base font-bold text-foreground">{v}</span>
           </div>
-          <span className="text-base font-bold text-foreground">{a}</span>
-        </div>
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-1.5 overflow-hidden">
-            <div className="h-2 w-2 shrink-0 rounded-full" style={{ background: COLOR_B }} />
-            <span className="text-xs text-foreground/60 truncate">{nameB}</span>
-          </div>
-          <span className="text-base font-bold text-foreground">{b}</span>
-        </div>
+        ))}
       </div>
     </div>
   );
 }
 
-function BarComparison({ metrics, nameA, nameB }: { metrics: Metric[]; nameA: string; nameB: string }) {
+function BarComparison({ metrics, names }: { metrics: Metric[]; names: string[] }) {
   return (
     <div className="flex flex-col gap-3">
       {metrics.map((m) => (
@@ -152,22 +148,19 @@ function BarComparison({ metrics, nameA, nameB }: { metrics: Metric[]; nameA: st
           <div className="mb-1 flex justify-between text-xs">
             <span className="text-foreground/60">{m.label}</span>
             <div className="flex gap-3">
-              <span style={{ color: COLOR_A }}>{m.a}{m.unit}</span>
-              <span style={{ color: COLOR_B }}>{m.b}{m.unit}</span>
+              {m.values.map((v, i) => (
+                <span key={names[i]} style={{ color: MODEL_COLORS[i] }}>{v}{m.unit}</span>
+              ))}
             </div>
           </div>
-          <div className="relative h-1.5 overflow-hidden rounded-full bg-muted">
-            <div
-              className="absolute left-0 top-0 h-full rounded-full transition-all duration-700"
-              style={{ width: `${m.a}%`, background: COLOR_A }}
-            />
-          </div>
-          <div className="relative mt-1 h-1.5 overflow-hidden rounded-full bg-muted">
-            <div
-              className="absolute left-0 top-0 h-full rounded-full transition-all duration-700"
-              style={{ width: `${m.b}%`, background: COLOR_B, opacity: 0.8 }}
-            />
-          </div>
+          {m.values.map((v, i) => (
+            <div key={names[i]} className={`relative ${i > 0 ? 'mt-1' : ''} h-1.5 overflow-hidden rounded-full bg-muted`}>
+              <div
+                className="absolute left-0 top-0 h-full rounded-full transition-all duration-700"
+                style={{ width: `${v}%`, background: MODEL_COLORS[i], opacity: i === 0 ? 1 : 0.8 }}
+              />
+            </div>
+          ))}
         </div>
       ))}
     </div>
@@ -175,26 +168,36 @@ function BarComparison({ metrics, nameA, nameB }: { metrics: Metric[]; nameA: st
 }
 // ─── Analysis Progress Panel ──────────────────────────────────────────────────
 
-const ANALYSIS_STEPS = [
+const ANALYSIS_STEPS_BASE = [
   { id: "upload",   label: "Tải ảnh lên máy chủ",         duration: 600  },
   { id: "detect",  label: "Phát hiện vùng tế bào (YOLO)",  duration: 3500 },
-  { id: "classA",  label: "Phân loại bằng Model A",          duration: 4000 },
-  { id: "classB",  label: "Phân loại bằng Model B",          duration: 3500 },
-  { id: "analyze", label: "Tổng hợp và xử lý kết quả",     duration: 1500 },
 ];
+
+const ANALYSIS_STEP_CLASSIFY = (name: string, dur: number) => ({
+  id: `class_${name}`, label: `Phân loại bằng ${name}`, duration: dur,
+});
+
+const ANALYSIS_STEP_FINAL = { id: "analyze", label: "Tổng hợp và xử lý kết quả", duration: 1500 };
 
 type StepStatus = "waiting" | "running" | "done";
 
-function AnalysisProgress({ modelNames }: { modelNames: [string, string] }) {
-  const [stepStatuses, setStepStatuses] = useState<Record<string, StepStatus>>(
-    Object.fromEntries(ANALYSIS_STEPS.map((s) => [s.id, "waiting"]))
-  );
+function AnalysisProgress({ modelNames }: { modelNames: string[] }) {
+  const steps = useMemo(() => [
+    ...ANALYSIS_STEPS_BASE,
+    ...modelNames.map((n, i) => ANALYSIS_STEP_CLASSIFY(n || `Model ${i + 1}`, 3500 + i * 500)),
+    ANALYSIS_STEP_FINAL,
+  ], [modelNames]);
+
+  const [stepStatuses, setStepStatuses] = useState<Record<string, StepStatus>>({});
   const [progress, setProgress] = useState(0);
   const [elapsed, setElapsed] = useState(0);
   const startRef = useRef<number>(Date.now());
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Tick elapsed time
+  useEffect(() => {
+    setStepStatuses(Object.fromEntries(steps.map((s) => [s.id, "waiting"])));
+  }, [steps]);
+
   useEffect(() => {
     startRef.current = Date.now();
     timerRef.current = setInterval(() => {
@@ -203,73 +206,53 @@ function AnalysisProgress({ modelNames }: { modelNames: [string, string] }) {
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, []);
 
-  // Simulate step progression
   useEffect(() => {
     let accumulated = 0;
     const timers: ReturnType<typeof setTimeout>[] = [];
-
-    ANALYSIS_STEPS.forEach((step, idx) => {
-      // Start running
+    steps.forEach((step, idx) => {
       const t1 = setTimeout(() => {
         setStepStatuses((prev) => ({ ...prev, [step.id]: "running" }));
       }, accumulated);
       timers.push(t1);
-
       accumulated += step.duration;
-
-      // Mark done
       const t2 = setTimeout(() => {
         setStepStatuses((prev) => ({ ...prev, [step.id]: "done" }));
-        setProgress(Math.round(((idx + 1) / ANALYSIS_STEPS.length) * 100));
+        setProgress(Math.round(((idx + 1) / steps.length) * 100));
       }, accumulated);
       timers.push(t2);
     });
-
     return () => timers.forEach(clearTimeout);
-  }, []);
+  }, [steps]);
 
-  // Smooth progress bar fill while a step is running
   useEffect(() => {
-    const runningIdx = ANALYSIS_STEPS.findIndex((s) => stepStatuses[s.id] === "running");
+    const runningIdx = steps.findIndex((s) => stepStatuses[s.id] === "running");
     if (runningIdx === -1) return;
-    const baseProgress = Math.round((runningIdx / ANALYSIS_STEPS.length) * 100);
-    const targetProgress = Math.round(((runningIdx + 1) / ANALYSIS_STEPS.length) * 100);
-    const duration = ANALYSIS_STEPS[runningIdx].duration;
+    const baseProgress = Math.round((runningIdx / steps.length) * 100);
+    const targetProgress = Math.round(((runningIdx + 1) / steps.length) * 100);
+    const duration = steps[runningIdx].duration;
     const start = Date.now();
     const raf = setInterval(() => {
       const pct = Math.min(1, (Date.now() - start) / duration);
       setProgress(Math.round(baseProgress + (targetProgress - baseProgress) * pct));
     }, 60);
     return () => clearInterval(raf);
-  }, [stepStatuses]);
-
-  const labels = {
-    classA: modelNames[0] ? `Phân loại bằng ${modelNames[0]}` : ANALYSIS_STEPS[2].label,
-    classB: modelNames[1] ? `Phân loại bằng ${modelNames[1]}` : ANALYSIS_STEPS[3].label,
-  };
+  }, [stepStatuses, steps]);
 
   return (
     <div className="mb-12 overflow-hidden rounded-2xl border border-blue-200 dark:border-blue-900/60 bg-blue-50/60 dark:bg-blue-950/30">
-      {/* Header */}
       <div className="flex items-center justify-between border-b border-blue-200/70 dark:border-blue-900/40 px-6 py-4">
         <div className="flex items-center gap-3">
           <span className="relative flex h-3 w-3">
             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75" />
             <span className="relative inline-flex h-3 w-3 rounded-full bg-blue-500" />
           </span>
-          <span className="text-sm font-semibold text-blue-700 dark:text-blue-300">Đang phân tích...</span>
+          <span className="text-sm font-semibold text-blue-700 dark:text-blue-300">Đang phân tích {modelNames.length} model...</span>
         </div>
         <span className="text-xs font-mono text-blue-500 dark:text-blue-400">{elapsed}s</span>
       </div>
-
-      {/* Progress bar */}
       <div className="px-6 pt-4 pb-1">
         <div className="relative h-2 overflow-hidden rounded-full bg-blue-100 dark:bg-blue-900/50">
-          <div
-            className="h-full rounded-full bg-gradient-to-r from-blue-400 to-blue-600 transition-all duration-300 ease-linear"
-            style={{ width: `${progress}%` }}
-          />
-          {/* Shimmer overlay */}
+          <div className="h-full rounded-full bg-gradient-to-r from-blue-400 to-blue-600 transition-all duration-300 ease-linear" style={{ width: `${progress}%` }} />
           <div className="absolute inset-0 overflow-hidden rounded-full">
             <div className="h-full w-1/3 animate-[shimmer_1.5s_infinite] bg-gradient-to-r from-transparent via-white/30 to-transparent" />
           </div>
@@ -280,56 +263,29 @@ function AnalysisProgress({ modelNames }: { modelNames: [string, string] }) {
           <span>100%</span>
         </div>
       </div>
-
-      {/* Steps */}
       <div className="px-6 pb-5 pt-3 flex flex-col gap-2">
-        {ANALYSIS_STEPS.map((step) => {
-          const status = stepStatuses[step.id];
-          const displayLabel =
-            step.id === "classA" ? labels.classA :
-            step.id === "classB" ? labels.classB :
-            step.label;
+        {steps.map((step) => {
+          const status = stepStatuses[step.id] ?? "waiting";
           return (
             <div key={step.id} className={`flex items-center gap-3 text-sm transition-all duration-300 ${
-              status === "done" ? "opacity-100" :
-              status === "running" ? "opacity-100" :
-              "opacity-35"
+              status === "done" ? "opacity-100" : status === "running" ? "opacity-100" : "opacity-35"
             }`}>
-              {/* Icon */}
               <div className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[11px] transition-all ${
-                status === "done"
-                  ? "bg-emerald-500 text-white"
-                  : status === "running"
-                  ? "bg-blue-500 text-white"
-                  : "bg-blue-100 dark:bg-blue-900/40 text-blue-400"
+                status === "done" ? "bg-emerald-500 text-white" : status === "running" ? "bg-blue-500 text-white" : "bg-blue-100 dark:bg-blue-900/40 text-blue-400"
               }`}>
                 {status === "done" ? (
-                  <svg viewBox="0 0 12 12" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M2 6l3 3 5-5" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
+                  <svg viewBox="0 0 12 12" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2"><path d="M2 6l3 3 5-5" strokeLinecap="round" strokeLinejoin="round" /></svg>
                 ) : status === "running" ? (
-                  <svg className="h-3.5 w-3.5 animate-spin" viewBox="0 0 24 24" fill="none">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
-                  </svg>
+                  <svg className="h-3.5 w-3.5 animate-spin" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" /></svg>
                 ) : (
                   <span className="h-1.5 w-1.5 rounded-full bg-current" />
                 )}
               </div>
-              {/* Label */}
               <span className={`font-medium ${
-                status === "done" ? "text-emerald-700 dark:text-emerald-400" :
-                status === "running" ? "text-blue-700 dark:text-blue-300" :
-                "text-blue-400 dark:text-blue-600"
-              }`}>
-                {displayLabel}
-              </span>
-              {status === "running" && (
-                <span className="ml-auto text-[11px] text-blue-400 dark:text-blue-500 animate-pulse">Đang chạy...</span>
-              )}
-              {status === "done" && (
-                <span className="ml-auto text-[11px] text-emerald-500">Xong ✓</span>
-              )}
+                status === "done" ? "text-emerald-700 dark:text-emerald-400" : status === "running" ? "text-blue-700 dark:text-blue-300" : "text-blue-400 dark:text-blue-600"
+              }`}>{step.label}</span>
+              {status === "running" && <span className="ml-auto text-[11px] text-blue-400 dark:text-blue-500 animate-pulse">Đang chạy...</span>}
+              {status === "done" && <span className="ml-auto text-[11px] text-emerald-500">Xong ✓</span>}
             </div>
           );
         })}
@@ -339,42 +295,28 @@ function AnalysisProgress({ modelNames }: { modelNames: [string, string] }) {
 }
 
 
-function RadarChart({ dataA, dataB, nameA, nameB }: { dataA: number[]; dataB: number[]; nameA: string; nameB: string }) {
+function RadarChart({ datasets, names }: { datasets: number[][]; names: string[] }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const chartRef = useRef<Chart | null>(null);
+  const bgAlphas = ["rgba(55,138,221,0.12)", "rgba(29,158,117,0.12)", "rgba(232,89,12,0.12)"];
 
   useEffect(() => {
     if (!canvasRef.current) return;
-
-    if (chartRef.current) {
-      chartRef.current.destroy();
-      chartRef.current = null;
-    }
+    if (chartRef.current) { chartRef.current.destroy(); chartRef.current = null; }
 
     chartRef.current = new Chart(canvasRef.current, {
       type: "radar",
       data: {
         labels: RADAR_LABELS,
-        datasets: [
-          {
-            label: nameA,
-            data: dataA,
-            borderColor: COLOR_A,
-            backgroundColor: "rgba(55,138,221,0.12)",
-            pointBackgroundColor: COLOR_A,
-            pointRadius: 4,
-            borderWidth: 2,
-          },
-          {
-            label: nameB,
-            data: dataB,
-            borderColor: COLOR_B,
-            backgroundColor: "rgba(29,158,117,0.12)",
-            pointBackgroundColor: COLOR_B,
-            pointRadius: 4,
-            borderWidth: 2,
-          },
-        ],
+        datasets: datasets.map((data, i) => ({
+          label: names[i],
+          data,
+          borderColor: MODEL_COLORS[i],
+          backgroundColor: bgAlphas[i] ?? "rgba(128,128,128,0.1)",
+          pointBackgroundColor: MODEL_COLORS[i],
+          pointRadius: 4,
+          borderWidth: 2,
+        })),
       },
       options: {
         responsive: true,
@@ -382,8 +324,7 @@ function RadarChart({ dataA, dataB, nameA, nameB }: { dataA: number[]; dataB: nu
         plugins: { legend: { display: false } },
         scales: {
           r: {
-            min: 0,
-            max: 100,
+            min: 0, max: 100,
             ticks: { display: false, stepSize: 20 },
             grid: { color: "rgba(128,128,128,0.12)" },
             angleLines: { color: "rgba(128,128,128,0.12)" },
@@ -392,19 +333,12 @@ function RadarChart({ dataA, dataB, nameA, nameB }: { dataA: number[]; dataB: nu
         },
       },
     });
-
-    return () => {
-      chartRef.current?.destroy();
-    };
-  }, [dataA, dataB, nameA, nameB]);
+    return () => { chartRef.current?.destroy(); };
+  }, [datasets, names]);
 
   return (
     <div className="relative h-56 w-full">
-      <canvas
-        ref={canvasRef}
-        role="img"
-        aria-label="Radar chart so sánh 6 chỉ số của 2 model AI huyết học"
-      />
+      <canvas ref={canvasRef} role="img" aria-label={`Radar chart so sánh ${names.length} model AI huyết học`} />
     </div>
   );
 }
@@ -431,7 +365,7 @@ export function ModelComparison() {
 
   useEffect(() => {
     if (models.length > 0 && selectedModelIds.length === 0) {
-      setSelectedModelIds(models.slice(0, 2).map(m => m.model_id));
+      setSelectedModelIds(models.slice(0, 3).map(m => m.model_id));
     }
   }, [models, selectedModelIds]);
 
@@ -491,7 +425,7 @@ export function ModelComparison() {
         if (prev.length <= 1) return prev;
         return prev.filter((m) => m !== id);
       }
-      if (prev.length >= 2) return [prev[1], id];
+      if (prev.length >= 3) return [...prev.slice(1), id];
       return [...prev, id];
     });
   };
@@ -502,65 +436,48 @@ export function ModelComparison() {
   
   const mappedResults = useMemo(() => {
     if (!resultData || resultData.comparison_rows.length < 2) return null;
-    const [rowA, rowB] = resultData.comparison_rows;
-    
-    // Get actual benchmarks from system config (which loaded from notebooks)
+    const rows = resultData.comparison_rows;
     const allBenchmarks = systemInfo?.model_benchmarks || {};
-    const benchA = allBenchmarks[rowA.model_id]?.metrics;
-    const benchB = allBenchmarks[rowB.model_id]?.metrics;
+    const fallback = { accuracy: 90, weighted_precision: 89, weighted_recall: 89, weighted_f1: 89, inference_speed_score: 85, stability_score: 85 };
 
-    // Default benchmarks if not found in JSON (fallback mock)
-    const fallbackA = { accuracy: 90, weighted_precision: 89, weighted_recall: 89, weighted_f1: 89, inference_speed_score: 85, stability_score: 85 };
-    const fallbackB = { accuracy: 90, weighted_precision: 89, weighted_recall: 89, weighted_f1: 89, inference_speed_score: 85, stability_score: 85 };
+    const benchmarks = rows.map(r => allBenchmarks[r.model_id]?.metrics || fallback);
+    const names = rows.map(r => r.display_name);
 
-    const mA = benchA || fallbackA;
-    const mB = benchB || fallbackB;
-
-    // Radar metrics map to: ["Confidence", "Accuracy", "Precision", "Recall", "F1-Score", "Speed", "Stability"]
-    const slideMetricsA = [
-      rowA.average_confidence * 100,
-      mA.accuracy,
-      mA.weighted_precision || mA.accuracy,
-      mA.weighted_recall || mA.accuracy,
-      mA.weighted_f1 || mA.accuracy,
-      mA.inference_speed_score || 85,
-      mA.stability_score || 85
-    ];
-    
-    const slideMetricsB = [
-      rowB.average_confidence * 100,
-      mB.accuracy,
-      mB.weighted_precision || mB.accuracy,
-      mB.weighted_recall || mB.accuracy,
-      mB.weighted_f1 || mB.accuracy,
-      mB.inference_speed_score || 85,
-      mB.stability_score || 85
-    ];
+    const radarDatasets = rows.map((row, i) => {
+      const m = benchmarks[i];
+      return [
+        row.average_confidence * 100,
+        m.accuracy,
+        m.weighted_precision || m.accuracy,
+        m.weighted_recall || m.accuracy,
+        m.weighted_f1 || m.accuracy,
+        m.inference_speed_score || 85,
+        m.stability_score || 85,
+      ];
+    });
 
     const summaryCards = [
-      { label: "Độ tự tin (Avg)", a: formatPercent(rowA.average_confidence), b: formatPercent(rowB.average_confidence) },
-      { label: "Phát hiện (Cells)", a: formatCount(rowA.detected_cell_count), b: formatCount(rowB.detected_cell_count) },
-      { label: "Phân loại (Cells)", a: formatCount(rowA.classified_cell_count), b: formatCount(rowB.classified_cell_count) },
-      { label: "Chiếm đa số", a: rowA.dominant_label, b: rowB.dominant_label },
+      { label: "Độ tự tin (Avg)", values: rows.map(r => formatPercent(r.average_confidence)) },
+      { label: "Phát hiện (Cells)", values: rows.map(r => formatCount(r.detected_cell_count)) },
+      { label: "Phân loại (Cells)", values: rows.map(r => formatCount(r.classified_cell_count)) },
+      { label: "Chiếm đa số", values: rows.map(r => r.dominant_label) },
     ];
 
     const barMetrics: Metric[] = [
-      { label: "Độ tự tin trung bình (Thực tế)", a: Math.round(rowA.average_confidence * 100), b: Math.round(rowB.average_confidence * 100), unit: "%" },
-      { label: "Độ chính xác tổng thể (Accuracy)", a: Math.round(mA.accuracy), b: Math.round(mB.accuracy), unit: "%" },
-      { label: "Độ chuẩn xác (Precision)", a: Math.round(mA.weighted_precision || mA.accuracy), b: Math.round(mB.weighted_precision || mB.accuracy), unit: "%" },
-      { label: "Độ bao phủ (Recall)", a: Math.round(mA.weighted_recall || mA.accuracy), b: Math.round(mB.weighted_recall || mB.accuracy), unit: "%" },
-      { label: "Điểm F1 (F1-Score)", a: Math.round(mA.weighted_f1 || mA.accuracy), b: Math.round(mB.weighted_f1 || mB.accuracy), unit: "%" },
-      { label: "Tốc độ suy luận (Speed)", a: Math.round(mA.inference_speed_score || 85), b: Math.round(mB.inference_speed_score || 85), unit: "%" },
-      { label: "Độ ổn định (Stability)", a: Math.round(mA.stability_score || 85), b: Math.round(mB.stability_score || 85), unit: "%" },
+      { label: "Độ tự tin trung bình (Thực tế)", values: rows.map(r => Math.round(r.average_confidence * 100)), unit: "%" },
+      { label: "Độ chính xác tổng thể (Accuracy)", values: benchmarks.map(m => Math.round(m.accuracy)), unit: "%" },
+      { label: "Độ chuẩn xác (Precision)", values: benchmarks.map(m => Math.round(m.weighted_precision || m.accuracy)), unit: "%" },
+      { label: "Độ bao phủ (Recall)", values: benchmarks.map(m => Math.round(m.weighted_recall || m.accuracy)), unit: "%" },
+      { label: "Điểm F1 (F1-Score)", values: benchmarks.map(m => Math.round(m.weighted_f1 || m.accuracy)), unit: "%" },
+      { label: "Tốc độ suy luận (Speed)", values: benchmarks.map(m => Math.round(m.inference_speed_score || 85)), unit: "%" },
+      { label: "Độ ổn định (Stability)", values: benchmarks.map(m => Math.round(m.stability_score || 85)), unit: "%" },
     ];
 
-    return { rowA, rowB, slideMetricsA, slideMetricsB, summaryCards, barMetrics };
+    return { rows, names, radarDatasets, summaryCards, barMetrics };
   }, [resultData, systemInfo]);
 
   const selectedModelNames = useMemo(() => {
-    const m0 = models.find(m => m.model_id === selectedModelIds[0])?.display_name ?? "";
-    const m1 = models.find(m => m.model_id === selectedModelIds[1])?.display_name ?? "";
-    return [m0, m1] as [string, string];
+    return selectedModelIds.map(id => models.find(m => m.model_id === id)?.display_name ?? "");
   }, [models, selectedModelIds]);
 
   return (
@@ -630,7 +547,7 @@ export function ModelComparison() {
       {/* Model selection */}
       <section className="mb-10">
         <h2 className="mb-4 text-lg font-semibold text-foreground">
-          Chọn model (tối đa 2)
+          Chọn model (tối đa 3)
         </h2>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {models.map((m) => (
@@ -660,46 +577,48 @@ export function ModelComparison() {
       )}
 
       {/* Results */}
-      {showResults && mappedResults && (
+      {showResults && mappedResults && (() => {
+        const { rows, names, radarDatasets, summaryCards, barMetrics } = mappedResults;
+        const accuracies = barMetrics.find(m => m.label.includes("Accuracy"))?.values || rows.map(() => 0);
+        const bestIdx = rows.reduce((best, row, i) => {
+          if (accuracies[i] > accuracies[best]) return i;
+          if (accuracies[i] === accuracies[best] && row.average_confidence > rows[best].average_confidence) return i;
+          return best;
+        }, 0);
+
+        return (
         <div ref={resultsRef} className="animate-in fade-in slide-in-from-bottom-4 duration-700">
           <hr className="mb-6 border-border" />
 
           <div className="mb-5 flex items-center justify-between">
             <h2 className="text-lg font-semibold text-foreground">Kết quả so sánh</h2>
             <span className="rounded-md bg-emerald-100 px-2.5 py-0.5 text-xs text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
-              {selectedModelIds.length} model · 1 ảnh phân tích
+              {rows.length} model · 1 ảnh phân tích
             </span>
           </div>
 
           {/* Summary cards */}
           <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
-            {mappedResults.summaryCards.map((c) => (
-              <SummaryCard key={c.label} {...c} nameA={mappedResults.rowA.display_name} nameB={mappedResults.rowB.display_name} />
+            {summaryCards.map((c) => (
+              <SummaryCard key={c.label} label={c.label} values={c.values} names={names} />
             ))}
           </div>
 
-          {/* Charts — full width 2-col */}
+          {/* Charts */}
           <div className="mb-6 grid grid-cols-1 gap-4 lg:grid-cols-2">
             {/* Radar */}
             <div className="rounded-xl border border-border bg-background p-6">
               <p className="mb-0.5 text-base font-semibold text-foreground">Radar đa chỉ số</p>
               <p className="mb-3 text-xs text-foreground/40">Cấu hình hiệu năng thực tế</p>
               <div className="mb-3 flex flex-wrap gap-x-4 gap-y-2">
-                <div className="flex items-center gap-1.5 text-[10px] text-foreground/60">
-                  <div className="h-2 w-2 rounded-full" style={{ background: COLOR_A }} />
-                  {mappedResults.rowA.display_name}
-                </div>
-                <div className="flex items-center gap-1.5 text-[10px] text-foreground/60">
-                  <div className="h-2 w-2 rounded-full" style={{ background: COLOR_B }} />
-                  {mappedResults.rowB.display_name}
-                </div>
+                {names.map((name, i) => (
+                  <div key={name} className="flex items-center gap-1.5 text-[10px] text-foreground/60">
+                    <div className="h-2 w-2 rounded-full" style={{ background: MODEL_COLORS[i] }} />
+                    {name}
+                  </div>
+                ))}
               </div>
-              <RadarChart
-                dataA={mappedResults.slideMetricsA}
-                dataB={mappedResults.slideMetricsB}
-                nameA={mappedResults.rowA.display_name}
-                nameB={mappedResults.rowB.display_name}
-              />
+              <RadarChart datasets={radarDatasets} names={names} />
             </div>
 
             {/* Bar */}
@@ -707,16 +626,14 @@ export function ModelComparison() {
               <p className="mb-0.5 text-base font-semibold text-foreground">Chi tiết từng metric</p>
               <p className="mb-3 text-xs text-foreground/40">So sánh song song</p>
               <div className="mb-3 flex flex-wrap gap-x-4 gap-y-2">
-                <div className="flex items-center gap-1.5 text-[10px] text-foreground/60">
-                  <div className="h-2 w-2 rounded-full" style={{ background: COLOR_A }} />
-                  {mappedResults.rowA.display_name}
-                </div>
-                <div className="flex items-center gap-1.5 text-[10px] text-foreground/60">
-                  <div className="h-2 w-2 rounded-full" style={{ background: COLOR_B }} />
-                  {mappedResults.rowB.display_name}
-                </div>
+                {names.map((name, i) => (
+                  <div key={name} className="flex items-center gap-1.5 text-[10px] text-foreground/60">
+                    <div className="h-2 w-2 rounded-full" style={{ background: MODEL_COLORS[i] }} />
+                    {name}
+                  </div>
+                ))}
               </div>
-              <BarComparison metrics={mappedResults.barMetrics} nameA={mappedResults.rowA.display_name} nameB={mappedResults.rowB.display_name} />
+              <BarComparison metrics={barMetrics} names={names} />
             </div>
           </div>
 
@@ -725,7 +642,7 @@ export function ModelComparison() {
             <button
               onClick={() => setActiveTab(prev => prev === "explain" ? null : "explain")}
               className={`flex-1 rounded-lg border py-2 text-xs font-medium transition ${
-                activeTab === "explain" 
+                activeTab === "explain"
                   ? "border-blue-500 bg-blue-50 text-blue-700 dark:border-blue-700 dark:bg-blue-900/30 dark:text-blue-300"
                   : "border-border bg-background text-foreground/80 hover:bg-muted/50"
               }`}
@@ -735,7 +652,7 @@ export function ModelComparison() {
             <button
               onClick={() => setActiveTab(prev => prev === "advice" ? null : "advice")}
               className={`flex-1 rounded-lg border py-2 text-xs font-medium transition ${
-                activeTab === "advice" 
+                activeTab === "advice"
                   ? "border-emerald-500 bg-emerald-50 text-emerald-700 dark:border-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300"
                   : "border-border bg-background text-foreground/80 hover:bg-muted/50"
               }`}
@@ -749,19 +666,19 @@ export function ModelComparison() {
             <div className="mt-4 rounded-xl border border-blue-200 bg-blue-50/50 p-5 text-sm leading-relaxed text-blue-900 dark:border-blue-800/50 dark:bg-blue-900/10 dark:text-blue-100 animate-in fade-in slide-in-from-top-2">
               <h4 className="mb-2 font-semibold">🔍 Phân tích chi tiết</h4>
               <ul className="list-inside list-disc space-y-1.5 opacity-90">
+                {rows.map((row) => (
+                  <li key={row.model_id}>
+                    <strong>{row.display_name}</strong> phát hiện được <strong>{row.detected_cell_count}</strong> tế bào với độ tự tin trung bình là <strong>{formatPercent(row.average_confidence)}</strong>.
+                  </li>
+                ))}
                 <li>
-                  <strong>{mappedResults.rowA.display_name}</strong> phát hiện được <strong>{mappedResults.rowA.detected_cell_count}</strong> tế bào với độ tự tin trung bình là <strong>{formatPercent(mappedResults.rowA.average_confidence)}</strong>.
+                  {new Set(rows.map(r => r.dominant_label)).size === 1
+                    ? <>Tất cả model <strong>đồng thuận</strong> về loại tế bào chiếm đa số là <strong>{rows[0].dominant_label}</strong>.</>
+                    : <>Các model <strong>bất đồng</strong> về loại tế bào chiếm đa số ({rows.map(r => r.dominant_label).join(" vs ")}), cho thấy ảnh này có thể chứa các tế bào khó phân biệt.</>
+                  }
                 </li>
                 <li>
-                  <strong>{mappedResults.rowB.display_name}</strong> phát hiện được <strong>{mappedResults.rowB.detected_cell_count}</strong> tế bào với độ tự tin trung bình là <strong>{formatPercent(mappedResults.rowB.average_confidence)}</strong>.
-                </li>
-                {mappedResults.rowA.dominant_label !== mappedResults.rowB.dominant_label ? (
-                  <li>Hai model <strong>bất đồng</strong> về loại tế bào chiếm đa số (<strong>{mappedResults.rowA.dominant_label}</strong> vs <strong>{mappedResults.rowB.dominant_label}</strong>), cho thấy ảnh này có thể chứa các tế bào khó phân biệt ở ngưỡng viền.</li>
-                ) : (
-                  <li>Hai model <strong>đồng thuận</strong> về loại tế bào chiếm đa số là <strong>{mappedResults.rowA.dominant_label}</strong>.</li>
-                )}
-                <li>
-                  Sự chênh lệch về độ tự tin {(Math.abs(mappedResults.rowA.average_confidence - mappedResults.rowB.average_confidence) * 100).toFixed(1)}% cho thấy {mappedResults.rowA.average_confidence > mappedResults.rowB.average_confidence ? mappedResults.rowA.display_name : mappedResults.rowB.display_name} bắt đặc trưng của bức ảnh này tốt hơn.
+                  Model có độ tự tin cao nhất trên ảnh này là <strong>{rows[bestIdx].display_name}</strong> ({formatPercent(rows[bestIdx].average_confidence)}).
                 </li>
               </ul>
             </div>
@@ -775,23 +692,19 @@ export function ModelComparison() {
               </p>
               <div className="rounded-lg bg-emerald-100/50 p-3 dark:bg-emerald-800/20 mb-3 border border-emerald-200 dark:border-emerald-800/50">
                 <p className="font-medium">
-                  Nên sử dụng: <strong>{
-                    (mappedResults.barMetrics[1].a > mappedResults.barMetrics[1].b) || 
-                    (mappedResults.barMetrics[1].a === mappedResults.barMetrics[1].b && mappedResults.rowA.average_confidence > mappedResults.rowB.average_confidence) 
-                      ? mappedResults.rowA.display_name 
-                      : mappedResults.rowB.display_name
-                  }</strong>
+                  Nên sử dụng: <strong>{rows[bestIdx].display_name}</strong>
                 </p>
               </div>
               <ul className="list-inside list-disc space-y-1.5 opacity-90">
                 <li>Ưu tiên model có <strong>Độ chính xác (Accuracy)</strong> cao hơn trên radar chart vì nó đã được huấn luyện tốt hơn để phân biệt các trường hợp gây nhầm lẫn.</li>
-                <li>Nếu hai model có Benchmark tương đương, hãy chọn model có <strong>Độ tự tin trung bình</strong> trên ảnh thực tế cao hơn.</li>
+                <li>Nếu các model có Benchmark tương đương, hãy chọn model có <strong>Độ tự tin trung bình</strong> trên ảnh thực tế cao hơn.</li>
                 <li>Đối với các mẫu máu hiếm hoặc bất thường, bạn nên tham khảo ý kiến của bác sĩ huyết học thay vì hoàn toàn phụ thuộc vào một model.</li>
               </ul>
             </div>
           )}
         </div>
-      )}
+        );
+      })()}
     </div>
   );
 }
