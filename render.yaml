@@ -14,6 +14,24 @@ services:
         value: "1"
       - key: ONNX_NUM_THREADS
         value: "1"
+      - key: SECRET_KEY
+        generateValue: true
+      - key: DATABASE_URL
+        value: "sqlite:///./data/hemavision.sqlite3"
+      - key: CORS_ALLOW_ORIGINS
+        value: "https://hema-frontend.onrender.com,http://localhost:3000,http://127.0.0.1:3000"
+      - key: APP_NAME
+        value: "HemaVision AI"
+      - key: LOG_LEVEL
+        value: "INFO"
+      - key: INFERENCE_RATE_LIMIT
+        value: "30/minute"
+      # Google Drive file ID for best9.onnx model download at startup
+      - key: MODEL_GDRIVE_ID
+        value: ""
+      # Optional: set to your actual Google Drive file ID for automatic model download
+      # - key: MODEL_GDRIVE_ID
+      #   value: "YOUR_FILE_ID_HERE"
 
   # ─── FRONTEND: Next.js Standalone ─────────────────────────────────
   - type: web
@@ -25,8 +43,8 @@ services:
     dockerfilePath: frontend-next/Dockerfile
     envVars:
       - key: NEXT_PUBLIC_API_URL
-        value: "https://hema-backend.onrender.com/api/v1" # Sửa lại URL thật sau khi backend deploy
+        value: "https://hema-backend.onrender.com/api/v1"
       - key: INTERNAL_API_URL
-        value: "https://hema-backend.onrender.com/api/v1" # Sửa lại URL thật sau khi backend deploy
+        value: "https://hema-backend.onrender.com/api/v1"
       - key: NEXT_TELEMETRY_DISABLED
         value: "1"
