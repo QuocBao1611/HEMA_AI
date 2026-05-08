@@ -22,7 +22,7 @@ services:
     region: singapore
     plan: free
     dockerContext: ./frontend-next
-    dockerfilePath: Dockerfile
+    dockerfilePath: frontend-next/Dockerfile
     envVars:
       - key: NEXT_PUBLIC_API_URL
         value: "https://hema-backend.onrender.com/api/v1" # Sửa lại URL thật sau khi backend deploy
