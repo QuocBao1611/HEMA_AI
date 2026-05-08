@@ -1,0 +1,33 @@
+# render.yaml - Blueprints for Render.com
+services:
+  # ─── BACKEND: FastAPI + ONNX ───────────────────────────────────────
+  - type: web
+    name: hema-backend
+    runtime: docker
+    region: singapore
+    plan: free
+    envVars:
+      - key: PORT
+        value: 10000
+      - key: MODEL_GDRIVE_ID
+        sync: false # Hãy điền ID file Google Drive của bạn trên Render Dashboard
+
+  # ─── FRONTEND: Next.js Standalone ─────────────────────────────────
+  - type: web
+    name: hema-frontend
+    runtime: docker
+    region: singapore
+    plan: free
+    dockerContext: ./frontend-next
+    dockerfilePath: Dockerfile
+    envVars:
+      - key: NEXT_PUBLIC_API_URL
+        fromService:
+          type: web
+          name: hema-backend
+          property: url
+      - key: INTERNAL_API_URL
+        fromService:
+          type: web
+          name: hema-backend
+          property: host
