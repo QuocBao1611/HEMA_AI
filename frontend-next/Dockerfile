@@ -15,6 +15,7 @@ COPY . .
 
 # Next.js telemetry is disabled
 ENV NEXT_TELEMETRY_DISABLED 1
+ENV NODE_OPTIONS="--max-old-space-size=384"
 
 # Build Next.js with standalone output (must be configured in next.config.ts)
 RUN npm run build
