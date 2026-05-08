@@ -16,8 +16,7 @@ npm-debug.log
 .next/
 out/
 
-# Data & Models (Do not bake large files into Docker images)
-models/
+# Data & Models (Baking models into image for simple deployment)
 data/
 logs/
 database/

@@ -13,11 +13,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy toàn bộ mã nguồn
+# Copy toàn bộ mã nguồn (bao gồm thư mục models/ vì đã xóa khỏi .dockerignore)
 COPY . .
 
-# Phân quyền cho script startup
-RUN chmod +x backend/startup.sh
-
-# Render inject $PORT tự động. Chạy qua startup.sh để download model nếu cần.
-CMD ["./backend/startup.sh"]
+# Render inject $PORT tự động.
+CMD ["sh", "-c", "uvicorn backend.app.main:app --host 0.0.0.0 --port $PORT --workers 1"]
