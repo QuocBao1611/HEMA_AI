@@ -64,6 +64,7 @@ def slugify_detector_id(path: Path) -> str:
 
 def discover_detector_paths() -> list[Path]:
     paths = sorted(DETECTOR_MODELS_DIR.glob("*.pt"))
+    paths.extend(sorted(DETECTOR_MODELS_DIR.glob("*.onnx")))
     if YOLO_MODEL_PATH.exists() and YOLO_MODEL_PATH not in paths:
         paths.insert(0, YOLO_MODEL_PATH)
     return paths
@@ -71,14 +72,14 @@ def discover_detector_paths() -> list[Path]:
 
 def is_unified_detector(detector_id: str) -> bool:
     """Return True for YOLO models that also carry 14-class cell labels (detect+classify in one pass)."""
-    return detector_id == "best_9"
+    return detector_id in ("best_9", "best9")
 
 
 def list_detector_models() -> list[dict[str, str]]:
     items: list[dict[str, str]] = []
     for path in discover_detector_paths():
         detector_id = slugify_detector_id(path)
-        if detector_id == "best_9":
+        if detector_id in ("best_9", "best9"):
             display_name = "Best9 YOLO (unified)"
         else:
             display_name = path.stem.replace("-", " ").replace("_", " ").title()
@@ -748,27 +749,36 @@ def run_model_comparison(
     model_results: list[dict[str, Any]] = []
     comparison_rows: list[dict[str, Any]] = []
     for classifier in classifiers:
-        predictions = run_batch_prediction(crops, classifier)
-        summary = summarize_slide_count(predictions, boxes, confidence_threshold, classifier)
-        result = {
-            "mode": "analyze",
-            "analysis_mode": "slide_count",
-            "selected_model_id": classifier.model_id,
-            "selected_model_name": classifier.display_name,
-            "input_shape": classifier.input_shape,
-            "preprocessing": classifier.preprocessing,
-            "filename": filename,
-            "image_size": {"width": image.width, "height": image.height},
-            "confidence_threshold": confidence_threshold,
-            "padding_ratio": padding_ratio,
-            "min_component_area": min_component_area,
-            "max_detections": max_detections,
-            "fallback_used": fallback_used,
-            "analysis_method": "Detect once, classify shared crops across multiple models",
-            "count_unit": "detected cells",
-            "note": "All compared models use the same detected boxes and crops for a fair comparison.",
-            **summary,
-        }
+        if classifier.unified or classifier.model_id == "best9":
+            result = run_yolo_unified_analysis(
+                image,
+                filename=filename,
+                confidence_threshold=confidence_threshold,
+                max_detections=max_detections,
+            )
+            result["note"] = "Unified model uses its own built-in detection and classification."
+        else:
+            predictions = run_batch_prediction(crops, classifier)
+            summary = summarize_slide_count(predictions, boxes, confidence_threshold, classifier)
+            result = {
+                "mode": "analyze",
+                "analysis_mode": "slide_count",
+                "selected_model_id": classifier.model_id,
+                "selected_model_name": classifier.display_name,
+                "input_shape": classifier.input_shape,
+                "preprocessing": classifier.preprocessing,
+                "filename": filename,
+                "image_size": {"width": image.width, "height": image.height},
+                "confidence_threshold": confidence_threshold,
+                "padding_ratio": padding_ratio,
+                "min_component_area": min_component_area,
+                "max_detections": max_detections,
+                "fallback_used": fallback_used,
+                "analysis_method": "Detect once, classify shared crops across multiple models",
+                "count_unit": "detected cells",
+                "note": "All compared models use the same detected boxes and crops for a fair comparison.",
+                **summary,
+            }
         model_results.append(result)
         comparison_rows.append(build_comparison_entry(result))
 
@@ -787,6 +797,7 @@ def run_model_comparison(
         "shared_detection": {
             "box_count": len(boxes),
             "fallback_used": fallback_used,
+            "boxes": boxes,
         },
         "models": model_results,
         "comparison_rows": comparison_rows,

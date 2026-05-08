@@ -120,7 +120,7 @@ def discover_model_paths() -> list[Path]:
             
         is_detector_dir = (search_dir == DETECTOR_MODELS_DIR)
         
-        for ext in ["*.h5", "*.keras", "*.pt"]:
+        for ext in ["*.h5", "*.keras", "*.pt", "*.onnx"]:
             for path in search_dir.glob(ext):
                 if "_sanitized" in path.stem:
                     continue
@@ -233,6 +233,8 @@ def resolve_preprocessing_name(model_path: Path, manifest_entry: dict[str, Any])
         return "inception_v3"
     if "mobilenet" in stem:
         return "mobilenet_v2"
+    if "best9" in stem or "best (9)" in stem:
+        return "yolo_detect"
     if model_path.suffix == ".pt" or "yolo" in stem:
         return "yolo_classify"
     return DEFAULT_MODEL_PREPROCESSING
@@ -324,6 +326,12 @@ def initialize_classifier_registry() -> tuple[dict[str, LoadedClassifier], str]:
             input_width = int(configured_shape[1])
             num_classes = int(manifest_entry.get("num_classes") or 14)
             loaded_model = YoloClassificationAdapter(compatible_path)
+        elif model_path.suffix == ".onnx":
+            configured_shape = manifest_entry.get("input_shape") or [640, 640, 3]
+            input_height = int(configured_shape[0])
+            input_width = int(configured_shape[1])
+            num_classes = int(manifest_entry.get("num_classes") or 14)
+            loaded_model = None  # Best9ONNXService is loaded lazily or handled elsewhere
         else:
             loaded_model = tf.keras.models.load_model(compatible_path)
             input_height = int(loaded_model.input_shape[1])

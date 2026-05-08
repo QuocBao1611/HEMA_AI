@@ -27,6 +27,7 @@ import { analysisDefaults } from "@/lib/constants/analysis";
 import { formatCount, formatPercent } from "@/lib/utils/format";
 import { validateImageFile } from "@/lib/validators/upload";
 import type { CompareModelsResponse } from "@/types/api";
+import { DetectionOverlay } from "@/components/analysis/detection-overlay";
 
 type CompareFormValues = {
   confidence_threshold: number;
@@ -341,14 +342,26 @@ export function CompareWorkspace() {
 
               {previewUrl ? (
                 <div className="relative overflow-hidden rounded-[24px] border border-white/10 group/preview shadow-2xl">
-                  <div className="relative h-[320px] w-full bg-black/50">
-                    <Image
-                      src={previewUrl}
-                      alt="Preview compare input"
-                      fill
-                      unoptimized
-                      className="object-contain transition-transform duration-700 group-hover/preview:scale-105"
-                    />
+                  <div className="relative h-[320px] w-full bg-black/50 overflow-hidden">
+                    {result?.shared_detection?.boxes ? (
+                      <DetectionOverlay
+                        imageSrc={previewUrl}
+                        detections={result.shared_detection.boxes.map((b, i) => ({
+                          region_id: i,
+                          box: { x: b.x1, y: b.y1, width: b.x2 - b.x1, height: b.y2 - b.y1 },
+                          label: "SHARED",
+                          confidence: 1,
+                        }))}
+                      />
+                    ) : (
+                      <Image
+                        src={previewUrl}
+                        alt="Preview compare input"
+                        fill
+                        unoptimized
+                        className="object-contain transition-transform duration-700 group-hover/preview:scale-105"
+                      />
+                    )}
                   </div>
                   <button
                     type="button"
