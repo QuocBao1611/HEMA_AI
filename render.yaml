@@ -9,6 +9,8 @@ services:
     envVars:
       - key: PORT
         value: 10000
+      - key: MODEL_GDRIVE_ID
+        sync: false   # Điền ID file Google Drive của bạn trên Render Dashboard
       - key: OMP_NUM_THREADS
         value: "1"
       - key: ONNX_NUM_THREADS
