@@ -22,12 +22,10 @@ services:
     dockerfilePath: Dockerfile
     envVars:
       - key: NEXT_PUBLIC_API_URL
-        fromService:
-          type: web
-          name: hema-backend
-          property: url
+        value: "https://your-backend-name.onrender.com" # Thay bằng URL thật sau khi tạo Backend
       - key: INTERNAL_API_URL
         fromService:
           type: web
           name: hema-backend
           property: host
+
