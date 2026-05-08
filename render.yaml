@@ -10,7 +10,11 @@ services:
       - key: PORT
         value: 10000
       - key: MODEL_GDRIVE_ID
-        sync: false # Hãy điền ID file Google Drive của bạn trên Render Dashboard
+        sync: false   # Điền ID file Google Drive của bạn trên Render Dashboard
+      - key: OMP_NUM_THREADS
+        value: "1"
+      - key: ONNX_NUM_THREADS
+        value: "1"
 
   # ─── FRONTEND: Next.js Standalone ─────────────────────────────────
   - type: web
@@ -22,10 +26,8 @@ services:
     dockerfilePath: Dockerfile
     envVars:
       - key: NEXT_PUBLIC_API_URL
-        value: "https://your-backend-name.onrender.com" # Thay bằng URL thật sau khi tạo Backend
+        value: "https://hema-backend.onrender.com/api/v1" # Sửa lại URL thật sau khi backend deploy
       - key: INTERNAL_API_URL
-        fromService:
-          type: web
-          name: hema-backend
-          property: host
-
+        value: "https://hema-backend.onrender.com/api/v1" # Sửa lại URL thật sau khi backend deploy
+      - key: NEXT_TELEMETRY_DISABLED
+        value: "1"
