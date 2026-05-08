@@ -1,0 +1,29 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+
+# Node
+node_modules/
+npm-debug.log
+.next/
+out/
+
+# Data & Models (Do not bake large files into Docker images)
+models/
+data/
+logs/
+database/
+*.db
+*.sqlite
+
+# OS
+.DS_Store
+Thumbs.db

@@ -2,7 +2,16 @@ import { ZodSchema } from "zod";
 
 const defaultBaseUrl = "http://localhost:8000/api/v1";
 
-let base = process.env.NEXT_PUBLIC_API_URL?.replace(/\/+$/, "") || defaultBaseUrl;
+let base = "";
+if (typeof window === "undefined") {
+  // Server-side: prefer internal network URL if running in Docker
+  base = process.env.INTERNAL_API_URL || process.env.NEXT_PUBLIC_API_URL || defaultBaseUrl;
+} else {
+  // Client-side: use public URL
+  base = process.env.NEXT_PUBLIC_API_URL || defaultBaseUrl;
+}
+
+base = base.replace(/\/+$/, "");
 if (!base.endsWith("/api/v1")) {
   base = `${base}/api/v1`;
 }
