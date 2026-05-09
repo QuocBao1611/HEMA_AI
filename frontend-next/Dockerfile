@@ -54,4 +54,5 @@ ENV PORT 3000
 ENV HOSTNAME "0.0.0.0"
 
 # Note: server.js is created by next build from the standalone output
-CMD ["node", "server.js"]
+# Added debug ls -la to check file presence
+CMD ["sh", "-c", "ls -la /app && node server.js"]
