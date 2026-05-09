@@ -30,7 +30,6 @@ services:
       # Set this to your actual Google Drive file ID for automatic model download
       - key: MODEL_GDRIVE_ID
         sync: false
-        value: ""
       # Optional: uncomment and set your actual Google Drive file ID
       # - key: MODEL_GDRIVE_ID
       #   value: "YOUR_FILE_ID_HERE"
