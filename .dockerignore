@@ -16,14 +16,33 @@ npm-debug.log
 .next/
 out/
 
-# Data & Models (Do not bake large files into Docker images)
-models/
-data/
-logs/
-database/
-*.db
-*.sqlite
-
 # OS
 .DS_Store
 Thumbs.db
+
+# Frontend (not needed for backend Docker build)
+frontend-next/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Docker
+docker-compose.yml
+nginx.conf
+
+# Docs
+docs/
+notebooks/
+samples/
+scripts/
+
+# Environment
+.env
+.env.example
+.env.production
+
+# Large model files (will be downloaded at runtime if needed)
+# models/detectors/best9.onnx

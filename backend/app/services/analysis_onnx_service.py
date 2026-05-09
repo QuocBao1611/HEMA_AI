@@ -71,10 +71,10 @@ class Best9ONNXService:
         if self._session is not None:
             return
 
-        if not self.model_path.exists():
+        if not self.model_path.exists() or self.model_path.stat().st_size == 0:
             raise FileNotFoundError(
-                f"ONNX model không tìm thấy: {self.model_path}\n"
-                f"Chạy export_best9_onnx.sh trước."
+                f"ONNX model không tìm thấy hoặc file rỗng: {self.model_path}\n"
+                f"Chạy export_best9_onnx.sh trước hoặc cấu hình MODEL_GDRIVE_ID."
             )
 
         providers = []

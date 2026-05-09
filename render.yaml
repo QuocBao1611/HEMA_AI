@@ -27,9 +27,11 @@ services:
       - key: INFERENCE_RATE_LIMIT
         value: "30/minute"
       # Google Drive file ID for best9.onnx model download at startup
+      # Set this to your actual Google Drive file ID for automatic model download
       - key: MODEL_GDRIVE_ID
+        sync: false
         value: ""
-      # Optional: set to your actual Google Drive file ID for automatic model download
+      # Optional: uncomment and set your actual Google Drive file ID
       # - key: MODEL_GDRIVE_ID
       #   value: "YOUR_FILE_ID_HERE"
 

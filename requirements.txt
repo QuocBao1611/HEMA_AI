@@ -1,13 +1,39 @@
-tensorflow==2.21.0
+# Core ML - ONNX Runtime (lightweight, no GPU needed for inference)
+onnxruntime==1.21.0
+
+# Web framework
 fastapi==0.135.1
-uvicorn==0.41.0
+uvicorn[standard]==0.41.0
+
+# Image processing
 pillow==12.1.1
 python-multipart==0.0.22
 numpy==2.2.6
-h5py==3.14.0
 opencv-python-headless==4.13.0.92
-ultralytics==8.4.23
+
+# Database
 SQLAlchemy==2.0.43
 PyMySQL==1.1.1
-slowapi==0.1.9
 alembic==1.14.0
+
+# Rate limiting
+slowapi==0.1.9
+
+# JWT & Auth
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+bcrypt==4.0.1
+
+# HDF5 for model sanitization
+h5py==3.14.0
+
+# Google Drive download (for model download at startup)
+gdown==5.2.0
+
+# TensorFlow CPU-only - for classifier models (.h5/.keras)
+tensorflow-cpu==2.18.1
+
+# PyTorch CPU-only + Ultralytics YOLO - for detection models
+torch==2.6.0
+torchvision==0.21.0
+ultralytics==8.3.100
