@@ -4,6 +4,7 @@ services:
   - type: web
     name: hema-backend
     runtime: docker
+    dockerContext: .
     dockerfilePath: backend/Dockerfile
     region: singapore
     plan: free
