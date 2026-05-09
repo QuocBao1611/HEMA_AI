@@ -55,4 +55,6 @@ ENV HOSTNAME "0.0.0.0"
 
 # Note: server.js is created by next build from the standalone output
 # Added debug ls -la to check file presence
-CMD ["sh", "-c", "ls -la /app && node server.js"]
+# Check if server.js exists and start the Next.js standalone server
+# If server.js is not found, try alternative locations
+CMD ["sh", "-c", "if [ -f server.js ]; then echo 'Found server.js at /app/server.js' && node server.js; elif [ -f .next/standalone/server.js ]; then echo 'Found server.js at /app/.next/standalone/server.js' && node .next/standalone/server.js; else echo 'ERROR: server.js not found!' && ls -la /app/ && ls -la /app/.next/ 2>/dev/null && ls -la /app/.next/standalone/ 2>/dev/null && exit 1; fi"]
