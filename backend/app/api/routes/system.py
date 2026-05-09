@@ -48,7 +48,7 @@ def root() -> dict[str, Any]:
         "name": settings.app_name,
         "status": "ok",
         "role": "api",
-        "frontend_url": "http://127.0.0.1:3000",
+        "frontend_url": settings.frontend_url,
         "health_url": "/health",
         "docs_url": "/docs",
     }

@@ -55,6 +55,7 @@ class Settings:
     secret_key: str = os.getenv("SECRET_KEY", "hema_vision_super_secret_key_change_in_prod")
     algorithm: str = os.getenv("ALGORITHM", "HS256")
     access_token_expire_minutes: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "1440")) # Default 24h
+    frontend_url: str = os.getenv("FRONTEND_URL", "http://127.0.0.1:3000").rstrip("/")
 
 
 settings = Settings()
