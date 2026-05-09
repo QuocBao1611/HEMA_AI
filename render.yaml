@@ -19,8 +19,10 @@ services:
         generateValue: true
       - key: DATABASE_URL
         value: "sqlite:///./data/hemavision.sqlite3"
+      - key: FRONTEND_URL
+        value: "https://hema-frontend-0os3.onrender.com"
       - key: CORS_ALLOW_ORIGINS
-        value: "https://hema-frontend.onrender.com,http://localhost:3000,http://127.0.0.1:3000"
+        value: "https://hema-frontend-0os3.onrender.com,https://hema-frontend.onrender.com,http://localhost:3000,http://127.0.0.1:3000"
       - key: APP_NAME
         value: "HemaVision AI"
       - key: LOG_LEVEL

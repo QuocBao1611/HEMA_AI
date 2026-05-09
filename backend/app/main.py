@@ -180,6 +180,7 @@ async def sqlalchemy_exception_handler(request: Request, exc: SQLAlchemyError):
     )
 
 
+import re
 import time
 
 SECURITY_HEADERS = {
@@ -215,15 +216,41 @@ async def security_and_logging_middleware(request: Request, call_next):
     return response
 
 
+# ── Dynamic CORS origin validation ─────────────────────────────────────
+# Allow known local/dev origins + any Render frontend subdomain pattern
+# Render generates random subdomain suffixes like hema-frontend-0os3.onrender.com
+_RENDER_FRONTEND_PATTERN = re.compile(
+    r"^https://hema-frontend[-a-zA-Z0-9]*\.onrender\.com$"
+)
+
+_cors_origins = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://localhost:8000",
+    "http://127.0.0.1:8000",
+    *list(settings.cors_allow_origins),
+]
+
+
+def _cors_origin_validate(origin: str) -> bool:
+    """Check if an origin is allowed (static list or Render frontend pattern)."""
+    if origin in _cors_origins:
+        return True
+    if _RENDER_FRONTEND_PATTERN.match(origin):
+        return True
+    return False
+
+
+class DynamicCORSMiddleware(CORSMiddleware):
+    """CORSMiddleware that dynamically validates Render frontend subdomains."""
+
+    def is_allowed_origin(self, origin: str) -> bool:
+        return _cors_origin_validate(origin)
+
+
 app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "http://localhost:8000",
-        "http://127.0.0.1:8000",
-        *list(settings.cors_allow_origins)
-    ],
+    DynamicCORSMiddleware,
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
