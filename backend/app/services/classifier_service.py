@@ -9,10 +9,8 @@ from typing import Any
 
 import h5py
 import numpy as np
-import tensorflow as tf
 from fastapi import HTTPException
 from PIL import Image
-from ultralytics import YOLO
 
 from backend.app.core.paths import (
     CLASS_NAMES_PATH,
@@ -55,12 +53,13 @@ _DEFAULT_MODEL_ID: str | None = None
 class YoloClassificationAdapter:
     def __init__(self, model_path: Path):
         self.model_path = model_path
-        self._model: YOLO | None = None
+        self._model: Any = None
 
-    def _load(self) -> YOLO:
+    def _load(self) -> Any:
         if self._model is None:
             try:
-                self._model = YOLO(self.model_path)
+                from ultralytics import YOLO as _YOLO_CLS
+                self._model = _YOLO_CLS(self.model_path)
             except AttributeError as exc:
                 missing = str(exc)
                 raise HTTPException(
@@ -333,7 +332,8 @@ def initialize_classifier_registry() -> tuple[dict[str, LoadedClassifier], str]:
             num_classes = int(manifest_entry.get("num_classes") or 14)
             loaded_model = None  # Best9ONNXService is loaded lazily or handled elsewhere
         else:
-            loaded_model = tf.keras.models.load_model(compatible_path)
+            import tensorflow as _tf
+            loaded_model = _tf.keras.models.load_model(compatible_path)
             input_height = int(loaded_model.input_shape[1])
             input_width = int(loaded_model.input_shape[2])
             num_classes = int(loaded_model.output_shape[-1])
@@ -466,17 +466,23 @@ def image_to_array(image: Image.Image, *, classifier: LoadedClassifier) -> np.nd
 def apply_model_preprocessing(batch: np.ndarray, preprocessing_name: str) -> np.ndarray:
     normalized_name = str(preprocessing_name or DEFAULT_MODEL_PREPROCESSING).strip().lower()
     if normalized_name == "mobilenet_v2":
-        return tf.keras.applications.mobilenet_v2.preprocess_input(batch)
+        import tensorflow as _tf
+        return _tf.keras.applications.mobilenet_v2.preprocess_input(batch)
     if normalized_name == "efficientnet":
-        return tf.keras.applications.efficientnet.preprocess_input(batch)
+        import tensorflow as _tf
+        return _tf.keras.applications.efficientnet.preprocess_input(batch)
     if normalized_name == "resnet50":
-        return tf.keras.applications.resnet50.preprocess_input(batch)
+        import tensorflow as _tf
+        return _tf.keras.applications.resnet50.preprocess_input(batch)
     if normalized_name == "densenet":
-        return tf.keras.applications.densenet.preprocess_input(batch)
+        import tensorflow as _tf
+        return _tf.keras.applications.densenet.preprocess_input(batch)
     if normalized_name == "xception":
-        return tf.keras.applications.xception.preprocess_input(batch)
+        import tensorflow as _tf
+        return _tf.keras.applications.xception.preprocess_input(batch)
     if normalized_name == "inception_v3":
-        return tf.keras.applications.inception_v3.preprocess_input(batch)
+        import tensorflow as _tf
+        return _tf.keras.applications.inception_v3.preprocess_input(batch)
     if normalized_name in {"zero_one", "0_1"}:
         return np.asarray(batch, dtype=np.float32) / 255.0
     if normalized_name == "yolo_classify":

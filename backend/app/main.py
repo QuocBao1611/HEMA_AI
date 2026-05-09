@@ -20,8 +20,6 @@ from backend.app.api.routes.system import router as system_router
 from backend.app.core.config import settings
 from backend.app.core.logging import get_logger, setup_logging
 from backend.app.core.rate_limit import limiter, rate_limit_exceeded_handler
-from backend.app.services.analysis_service import initialize_detection_runtime
-from backend.app.services.classifier_service import initialize_classifier_registry
 from backend.app.services.persistence_service import (
     apply_database_label_overrides,
     initialize_database,
@@ -138,8 +136,19 @@ def _patch_ultralytics_modules():
 async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
     """Application startup and shutdown lifecycle."""
     logger.info("Initializing system registries and dependencies...")
-    initialize_classifier_registry()
-    initialize_detection_runtime()
+    # Lazy-import heavy ML libraries (tensorflow, torch, ultralytics)
+    # to avoid OOM crash on Render Free Tier (512MB RAM) at startup.
+    # These will be loaded on-demand when the first analysis request hits.
+    from backend.app.services.classifier_service import initialize_classifier_registry
+    from backend.app.services.analysis_service import initialize_detection_runtime
+    try:
+        initialize_classifier_registry()
+    except Exception as exc:
+        logger.warning("Classifier registry init deferred (will lazy-load): %s", exc)
+    try:
+        initialize_detection_runtime()
+    except Exception as exc:
+        logger.warning("Detection runtime init deferred (will lazy-load): %s", exc)
     initialize_database()
     sync_model_catalog()
     apply_database_label_overrides()

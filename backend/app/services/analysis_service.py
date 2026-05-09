@@ -5,7 +5,6 @@ import cv2
 import numpy as np
 from fastapi import HTTPException
 from PIL import Image
-from ultralytics import YOLO
 
 from backend.app.core.paths import DETECTOR_MODELS_DIR, YOLO_MODEL_PATH
 from backend.app.services.classifier_service import (
@@ -46,8 +45,9 @@ DIAGNOSTIC_GROUP_BY_LABEL = {
 WBC_DIFFERENTIAL_LABELS = {"BA", "EO", "IG", "LY", "MO", "NE"}
 RESAMPLING = getattr(Image, "Resampling", Image)
 
-_YOLO_MODEL: YOLO | None = None
-_YOLO_MODELS: dict[str, YOLO] = {}
+# Lazy-loaded: YOLO type is imported on-demand to avoid OOM on Render Free Tier
+_YOLO_MODEL: Any = None
+_YOLO_MODELS: dict[str, Any] = {}
 
 # Class names embedded in best (9).pt (from pt['model'].names)
 BEST9_CLASS_NAMES: dict[int, str] = {
@@ -108,14 +108,16 @@ def resolve_detector_path(detector_model_id: str | None = None) -> Path:
     return path
 
 
-def initialize_detection_runtime(detector_model_id: str | None = None) -> YOLO:
+def initialize_detection_runtime(detector_model_id: str | None = None) -> Any:
+    """Initialize YOLO detection runtime (lazy-imports ultralytics to save RAM)."""
     global _YOLO_MODEL
     detector_path = resolve_detector_path(detector_model_id)
     detector_id = slugify_detector_id(detector_path)
     if detector_model_id is None and _YOLO_MODEL is not None and detector_id == slugify_detector_id(YOLO_MODEL_PATH):
         return _YOLO_MODEL
     if detector_id not in _YOLO_MODELS:
-        _YOLO_MODELS[detector_id] = YOLO(detector_path)
+        from ultralytics import YOLO as _YOLO_CLS
+        _YOLO_MODELS[detector_id] = _YOLO_CLS(detector_path)
     if detector_id == slugify_detector_id(YOLO_MODEL_PATH):
         _YOLO_MODEL = _YOLO_MODELS[detector_id]
     return _YOLO_MODELS[detector_id]
