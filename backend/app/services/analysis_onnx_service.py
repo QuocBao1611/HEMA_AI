@@ -74,7 +74,7 @@ class Best9ONNXService:
         if not self.model_path.exists() or self.model_path.stat().st_size == 0:
             raise FileNotFoundError(
                 f"ONNX model không tìm thấy hoặc file rỗng: {self.model_path}\n"
-                f"Chạy export_best9_onnx.sh trước hoặc cấu hình MODEL_GDRIVE_ID."
+                f"Đảm bảo file best9.onnx đã được COPY vào Docker image (models/detectors/)."
             )
 
         providers = []

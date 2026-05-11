@@ -39,10 +39,12 @@ Thumbs.db
 models/**/*.keras
 models/**/*.pt
 models/**/*.h5
-models/**/*.onnx
 models/**/*.data
 yolov13/
 best9_result.jpg
-*.onnx
 *.pt
 *.keras
+
+# Ngoại lệ: best9.onnx được force-add để dùng trong Docker build (Render Free Tier)
+# File này cần có trong repo để COPY vào Docker image, tránh tải từ Google Drive
+!models/detectors/best9.onnx

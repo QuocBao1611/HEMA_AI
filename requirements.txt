@@ -27,9 +27,6 @@ bcrypt==4.0.1
 # HDF5 for model sanitization
 h5py==3.14.0
 
-# Google Drive download (for model download at startup)
-gdown==5.2.0
-
 # TensorFlow CPU-only - for classifier models (.h5/.keras)
 tensorflow-cpu==2.18.1
 

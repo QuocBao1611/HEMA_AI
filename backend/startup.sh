@@ -1,6 +1,10 @@
 #!/bin/bash
 # startup.sh - Tối ưu cho Render Free Tier
 # Chạy từ WORKDIR /app (xem Dockerfile)
+#
+# QUAN TRỌNG: Không tải model từ Google Drive ở đây vì Render Free Tier
+# (512MB RAM) sẽ bị crash/OOM khi dùng gdown. Model best9.onnx đã được
+# COPY vào Docker image qua Dockerfile (COPY models/ ./models/).
 
 set -e
 
@@ -14,24 +18,11 @@ mkdir -p "./models/classifiers"
 mkdir -p "./data"
 mkdir -p "./logs"
 
-# Tải model từ Google Drive nếu chưa tồn tại (Dùng gdown)
+# Kiểm tra model đã tồn tại trong image chưa
 if [ ! -f "$MODEL_PATH" ]; then
-    echo "--- Model not found. Downloading from Google Drive... ---"
-    
-    # ID file best9.onnx trên Google Drive (Công khai hoặc có quyền truy cập)
-    GDRIVE_ID="${MODEL_GDRIVE_ID:-}"
-    
-    if [ -n "$GDRIVE_ID" ]; then
-        echo "Downloading best9.onnx from Google Drive (ID: $GDRIVE_ID)..."
-        gdown "https://drive.google.com/uc?id=$GDRIVE_ID" -O "$MODEL_PATH" || {
-            echo "!!! WARNING: Failed to download model from Google Drive !!!"
-        }
-    else
-        echo "!!! CẢNH BÁO: Chưa cấu hình MODEL_GDRIVE_ID. Hệ thống có thể lỗi khi chạy inference best9 !!!"
-        echo "!!! Tạo file model rỗng để tránh crash khi import module..."
-        # Tạo file rỗng để tránh lỗi FileNotFoundError khi import module
-        touch "$MODEL_PATH"
-    fi
+    echo "!!! CẢNH BÁO: Không tìm thấy $MODEL_PATH trong Docker image !!!"
+    echo "!!! Tạo file model rỗng để tránh crash khi import module..."
+    touch "$MODEL_PATH"
 fi
 
 echo "--- Starting HemaVision Backend on Port ${PORT:-10000} ---"

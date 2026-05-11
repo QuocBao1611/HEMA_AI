@@ -35,10 +35,6 @@ services:
         value: "INFO"
       - key: INFERENCE_RATE_LIMIT
         value: "30/minute"
-      # Google Drive file ID cho best9.onnx model download tại startup
-      - key: MODEL_GDRIVE_ID
-        sync: false
-
   # ─── FRONTEND: Next.js Standalone ─────────────────────────────────
   - type: web
     name: hmai-frontend
