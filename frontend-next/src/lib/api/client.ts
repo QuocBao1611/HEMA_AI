@@ -40,6 +40,71 @@ type RequestOptions = Omit<RequestInit, "body"> & {
   body?: BodyInit | null;
 };
 
+/**
+ * Kiểm tra xem lỗi có phải do backend Render Free Tier đang "ngủ" không
+ * (ECONNRESET, socket hang up, hoặc fetch timeout)
+ */
+function _isConnectionResetError(error: unknown): boolean {
+  if (error instanceof TypeError && error.message?.includes("fetch")) {
+    return true;
+  }
+  if (error instanceof Error) {
+    const msg = error.message?.toLowerCase() || "";
+    return (
+      msg.includes("econnreset") ||
+      msg.includes("socket hang up") ||
+      msg.includes("network error") ||
+      msg.includes("failed to fetch") ||
+      msg.includes("fetch failed") ||
+      msg.includes("abort") ||
+      msg.includes("timeout")
+    );
+  }
+  return false;
+}
+
+/**
+ * Đánh thức backend Render Free Tier trước khi gọi API thật.
+ * Render Free Tier sẽ spin down sau 15 phút không hoạt động.
+ * Request đầu tiên sau giấc ngủ thường mất 30-60 giây để wake up.
+ */
+let _isWakingUp = false;
+let _lastWakeUpTime = 0;
+const WAKEUP_COOLDOWN_MS = 60_000; // Chỉ wake up 1 lần mỗi phút
+
+async function _wakeUpBackend(): Promise<boolean> {
+  const now = Date.now();
+  if (_isWakingUp || (now - _lastWakeUpTime < WAKEUP_COOLDOWN_MS)) {
+    return true; // Đã wake up gần đây hoặc đang wake up
+  }
+
+  _isWakingUp = true;
+  try {
+    console.log("[WakeUp] Đánh thức backend Render Free Tier...");
+    // Gọi /health với timeout 60 giây (đủ cho Render wake up)
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 60_000);
+
+    const wakeUrl = base.replace(/\/api\/v1\/?$/, "/health");
+    const response = await fetch(wakeUrl, {
+      signal: controller.signal,
+      cache: "no-store",
+    });
+
+    clearTimeout(timeoutId);
+    _lastWakeUpTime = Date.now();
+    console.log(`[WakeUp] Backend đã thức dậy: ${response.status}`);
+    return response.ok;
+  } catch (error) {
+    console.warn("[WakeUp] Lỗi khi đánh thức backend:", error);
+    // Vẫn đánh dấu là đã wake up để tránh gọi liên tục
+    _lastWakeUpTime = Date.now();
+    return false;
+  } finally {
+    _isWakingUp = false;
+  }
+}
+
 async function parseResponse<T>(
   response: Response,
   schema?: ZodSchema,
@@ -78,26 +143,72 @@ export async function apiRequest<T>(
   const url = `${apiBaseUrl}${targetPath}`;
   console.log(`[API Request] ${init.method || "GET"} ${url}`);
 
-  const response = await fetch(url, {
-    ...init,
-    headers: {
-      Accept: "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...headers,
-    },
-    cache: "no-store",
-  });
+  // ── Retry logic cho Render Free Tier ──────────────────────────────
+  // Render Free Tier spin down sau 15 phút, request đầu tiên có thể bị
+  // ECONNRESET / socket hang up. Chúng ta sẽ retry tối đa 3 lần.
+  const MAX_RETRIES = 3;
+  let lastError: Error | null = null;
 
-  if (response.status === 401 && typeof window !== "undefined") {
-    // Clear auth state and redirect to login if not already there
-    const authStore = (await import("@/stores/auth-store")).useAuthStore;
-    authStore.getState().logout();
-    if (window.location.pathname !== "/login") {
-      window.location.href = "/login";
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      // Ở lần retry đầu tiên (sau lần fail), đánh thức backend trước
+      if (attempt > 1) {
+        console.log(`[Retry ${attempt}/${MAX_RETRIES}] Đánh thức backend trước khi retry...`);
+        await _wakeUpBackend();
+        // Đợi thêm 2 giây để backend kịp khởi động
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
+
+      // Tăng timeout cho mỗi lần retry
+      const controller = new AbortController();
+      const timeoutMs = attempt === 1 ? 30_000 : 60_000; // 30s lần đầu, 60s các lần retry
+      const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+      const response = await fetch(url, {
+        ...init,
+        signal: controller.signal,
+        headers: {
+          Accept: "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          ...headers,
+        },
+        cache: "no-store",
+      });
+
+      clearTimeout(timeoutId);
+
+      if (response.status === 401 && typeof window !== "undefined") {
+        // Clear auth state and redirect to login if not already there
+        const authStore = (await import("@/stores/auth-store")).useAuthStore;
+        authStore.getState().logout();
+        if (window.location.pathname !== "/login") {
+          window.location.href = "/login";
+        }
+      }
+
+      return parseResponse<T>(response, schema);
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+
+      // Chỉ retry nếu là lỗi kết nối (ECONNRESET, timeout, etc.)
+      if (!_isConnectionResetError(error)) {
+        // Lỗi không phải do kết nối (VD: 4xx, 5xx) - không retry
+        throw error;
+      }
+
+      if (attempt < MAX_RETRIES) {
+        const delay = attempt * 3000; // 3s, 6s
+        console.warn(
+          `[Retry ${attempt}/${MAX_RETRIES}] Lỗi kết nối: ${lastError.message}. ` +
+          `Thử lại sau ${delay}ms...`
+        );
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
     }
   }
 
-  return parseResponse<T>(response, schema);
+  // Nếu đã retry hết mà vẫn lỗi
+  throw lastError || new Error("Không thể kết nối đến backend sau nhiều lần thử.");
 }
 
 export function apiGet<T>(path: string, schema?: ZodSchema) {
