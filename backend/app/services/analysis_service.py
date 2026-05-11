@@ -10,7 +10,6 @@ from backend.app.core.paths import DETECTOR_MODELS_DIR, YOLO_MODEL_PATH
 from backend.app.services.classifier_service import (
     LoadedClassifier,
     apply_model_preprocessing,
-    get_classifier_registry,
     image_to_array,
     vector_to_prediction_items,
 )
@@ -639,6 +638,7 @@ def prepare_slide_count_candidates(
     min_component_area: int,
     max_detections: int,
     detector_model_id: str | None = None,
+    classifier: LoadedClassifier | None = None,
 ) -> tuple[list[dict[str, int]], list[Image.Image], bool]:
     boxes = detect_cell_boxes(
         image,
@@ -648,8 +648,14 @@ def prepare_slide_count_candidates(
         detector_model_id=detector_model_id,
     )
     fallback_used = False
-    max_width = max(classifier.input_width for classifier in get_classifier_registry().values())
-    max_height = max(classifier.input_height for classifier in get_classifier_registry().values())
+    # Use the provided classifier's input shape for fallback check
+    # Avoid calling get_classifier_registry() which loads ALL models
+    if classifier is not None:
+        max_width = classifier.input_width
+        max_height = classifier.input_height
+    else:
+        max_width = 640
+        max_height = 640
     if not boxes and image.width <= int(max_width * 1.5) and image.height <= int(max_height * 1.5):
         boxes = [{"x1": 0, "y1": 0, "x2": image.width, "y2": image.height, "area": image.width * image.height}]
         fallback_used = True
@@ -675,6 +681,7 @@ def run_slide_count_analysis(
         min_component_area=min_component_area,
         max_detections=max_detections,
         detector_model_id=detector_model_id,
+        classifier=classifier,
     )
     predictions = run_batch_prediction(crops, classifier)
     summary = summarize_slide_count(predictions, boxes, confidence_threshold, classifier)
@@ -740,12 +747,15 @@ def run_model_comparison(
     max_detections: int,
     detector_model_id: str | None = None,
 ) -> dict[str, Any]:
+    # Use the first classifier's input shape for fallback check
+    first_classifier = classifiers[0] if classifiers else None
     boxes, crops, fallback_used = prepare_slide_count_candidates(
         image,
         padding_ratio=padding_ratio,
         min_component_area=min_component_area,
         max_detections=max_detections,
         detector_model_id=detector_model_id,
+        classifier=first_classifier,
     )
 
     model_results: list[dict[str, Any]] = []

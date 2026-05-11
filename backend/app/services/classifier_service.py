@@ -413,10 +413,106 @@ def get_default_classifier() -> LoadedClassifier:
 
 
 def get_classifier(model_id: str | None) -> LoadedClassifier:
-    selected_id = str(model_id or get_default_model_id()).strip() or get_default_model_id()
-    classifier = get_classifier_registry().get(selected_id)
-    if classifier is None:
+    """Get a classifier by model_id, loading ONLY the requested model.
+    
+    CRITICAL: This function must NOT call initialize_classifier_registry() which
+    loads ALL TensorFlow models at once (~200-400MB each), causing OOM on Render
+    Free Tier (512MB RAM). Instead, we load only the requested model on demand.
+    
+    If the registry is already initialized (from a previous request), we use it.
+    Otherwise, we load just the requested model.
+    """
+    global _CLASSIFIER_REGISTRY, _DEFAULT_MODEL_ID
+    
+    selected_id = str(model_id or "").strip()
+    
+    # If registry is already initialized, use it
+    if _CLASSIFIER_REGISTRY is not None:
+        if not selected_id:
+            selected_id = _DEFAULT_MODEL_ID or next(iter(_CLASSIFIER_REGISTRY))
+        classifier = _CLASSIFIER_REGISTRY.get(selected_id)
+        if classifier is None:
+            raise HTTPException(status_code=404, detail=f"Không tìm thấy model_id '{selected_id}'.")
+        return classifier
+    
+    # Registry not initialized - load ONLY the requested model
+    if not selected_id:
+        # No specific model requested, load the first available one
+        registry, default_id = initialize_classifier_registry()
+        return registry[default_id]
+    
+    # Load just the requested model
+    manifest = load_model_manifest()
+    model_paths = discover_model_paths()
+    
+    # Find the matching model path
+    target_path = None
+    for mp in model_paths:
+        base_id = slugify_model_id(str(manifest.get(mp.name, {}).get("model_id") or mp.stem))
+        if mp.name == "best (9).pt" or mp.stem == "best9":
+            base_id = "best9"
+        if base_id == selected_id:
+            target_path = mp
+            break
+    
+    if target_path is None:
         raise HTTPException(status_code=404, detail=f"Không tìm thấy model_id '{selected_id}'.")
+    
+    manifest_entry = manifest.get(target_path.name, {})
+    compatible_path = ensure_compatible_model(target_path)
+    
+    if target_path.suffix == ".pt":
+        configured_shape = manifest_entry.get("input_shape") or [224, 224, 3]
+        input_height = int(configured_shape[0])
+        input_width = int(configured_shape[1])
+        num_classes = int(manifest_entry.get("num_classes") or 14)
+        loaded_model = YoloClassificationAdapter(compatible_path)
+    elif target_path.suffix == ".onnx":
+        configured_shape = manifest_entry.get("input_shape") or [640, 640, 3]
+        input_height = int(configured_shape[0])
+        input_width = int(configured_shape[1])
+        num_classes = int(manifest_entry.get("num_classes") or 14)
+        loaded_model = None  # Best9ONNXService is loaded lazily or handled elsewhere
+    else:
+        import tensorflow as _tf
+        _tf.get_logger().setLevel("ERROR")
+        loaded_model = _tf.keras.models.load_model(compatible_path)
+        input_height = int(loaded_model.input_shape[1])
+        input_width = int(loaded_model.input_shape[2])
+        num_classes = int(loaded_model.output_shape[-1])
+    
+    class_names = load_class_names(num_classes)
+    
+    base_id = slugify_model_id(str(manifest_entry.get("model_id") or target_path.stem))
+    is_unified = False
+    if target_path.name == "best (9).pt" or target_path.stem == "best9":
+        base_id = "best9"
+        is_unified = True
+        input_height = 640
+        input_width = 640
+    
+    display_name = str(manifest_entry.get("display_name") or target_path.stem.replace("_", " "))
+    if base_id == "best9":
+        display_name = "Best9 YOLO (unified)"
+    
+    classifier = LoadedClassifier(
+        model_id=base_id,
+        display_name=display_name,
+        source_path=target_path,
+        loaded_path=compatible_path,
+        model=loaded_model,
+        input_height=input_height,
+        input_width=input_width,
+        num_classes=num_classes,
+        class_names=class_names,
+        preprocessing=resolve_preprocessing_name(target_path, manifest_entry),
+        unified=is_unified,
+    )
+    
+    # Initialize registry with just this model
+    _CLASSIFIER_REGISTRY = {base_id: classifier}
+    _DEFAULT_MODEL_ID = base_id
+    
     return classifier
 
 

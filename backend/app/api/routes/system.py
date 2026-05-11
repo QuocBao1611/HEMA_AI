@@ -1,6 +1,7 @@
-from typing import Any
+import gc
 import json
 from pathlib import Path
+from typing import Any
 
 from fastapi import APIRouter, HTTPException
 
@@ -34,12 +35,49 @@ router = APIRouter(prefix="/api/v1", tags=["system"])
 alias_router = APIRouter(tags=["system"])
 
 
-
+def _build_lightweight_model_list() -> list:
+    """Build model list from file discovery ONLY - no model loading.
+    
+    CRITICAL: Must NOT call get_classifier_registry() or get_default_classifier()
+    as those trigger loading ALL TensorFlow models (~200-400MB each), causing OOM
+    on Render Free Tier (512MB RAM).
+    
+    Models are lazy-loaded on first analysis request only.
+    """
+    from backend.app.services.classifier_service import discover_model_paths, load_model_manifest, slugify_model_id
+    manifest = load_model_manifest()
+    model_paths = discover_model_paths()
+    
+    models = []
+    for model_path in model_paths:
+        manifest_entry = manifest.get(model_path.name, {})
+        base_id = slugify_model_id(str(manifest_entry.get("model_id") or model_path.stem))
+        if model_path.name == "best (9).pt" or model_path.stem == "best9":
+            base_id = "best9"
+        display_name = str(manifest_entry.get("display_name") or model_path.stem.replace("_", " "))
+        if base_id == "best9":
+            display_name = "Best9 YOLO (unified)"
+        models.append({
+            "model_id": base_id,
+            "display_name": display_name,
+            "source_path": model_path.name,
+            "preprocessing": str(manifest_entry.get("preprocessing", "mobilenet_v2")),
+            "num_classes": int(manifest_entry.get("num_classes", 14)),
+            "input_shape": manifest_entry.get("input_shape", [224, 224, 3]),
+            "unified": base_id == "best9",
+        })
+    return models
 
 
 def _build_available_models() -> list:
-    """Return classifier models (Best9 is now included in registry)."""
+    """Return classifier models (Best9 is now included in registry).
+    
+    WARNING: This triggers loading ALL TensorFlow models. Only call this
+    when models are already loaded (e.g., after an analysis request).
+    For /info and /health endpoints, use _build_lightweight_model_list() instead.
+    """
     return [serialize_classifier_info(c) for c in get_classifier_registry().values()]
+
 
 
 @router.get("/", include_in_schema=False)
@@ -56,19 +94,25 @@ def root() -> dict[str, Any]:
 
 @router.get("/health")
 def health() -> dict[str, Any]:
-    default_classifier = get_default_classifier()
+    """Health check - uses lightweight file discovery, does NOT load ML models.
+    
+    CRITICAL: Must NOT call get_default_classifier() or get_classifier_registry()
+    as those trigger loading ALL TensorFlow models (~200-400MB each), causing OOM
+    on Render Free Tier (512MB RAM).
+    """
+    models = _build_lightweight_model_list()
+    default_model = models[0] if models else {}
     return {
         "status": "ok",
-        "default_model_id": default_classifier.model_id,
-        "default_model_name": default_classifier.display_name,
-        "model_path": str(default_classifier.source_path.name),
-        "loaded_model_path": str(default_classifier.loaded_path.name),
-        "input_shape": default_classifier.input_shape,
-        "num_classes": default_classifier.num_classes,
+        "default_model_id": default_model.get("model_id"),
+        "default_model_name": default_model.get("display_name"),
+        "model_path": default_model.get("source_path"),
+        "input_shape": default_model.get("input_shape"),
+        "num_classes": default_model.get("num_classes"),
         "analysis_mode": "slide_count",
         "available_analysis_modes": ["slide_count", "grid_estimation"],
-        "preprocessing": default_classifier.preprocessing,
-        "available_models": _build_available_models(),
+        "preprocessing": default_model.get("preprocessing"),
+        "available_models": models,
         "database": database_health(),
     }
 
@@ -86,14 +130,21 @@ def _load_model_benchmarks() -> dict:
 
 @router.get("/info")
 def info() -> dict[str, Any]:
-    default_classifier = get_default_classifier()
+    """System info - uses lightweight file discovery, does NOT load ML models.
+    
+    CRITICAL: Must NOT call get_default_classifier() or get_classifier_registry()
+    as those trigger loading ALL TensorFlow models (~200-400MB each), causing OOM
+    on Render Free Tier (512MB RAM).
+    """
+    models = _build_lightweight_model_list()
+    default_model = models[0] if models else {}
     return {
-        "default_model_id": default_classifier.model_id,
-        "default_model_name": default_classifier.display_name,
-        "input_shape": default_classifier.input_shape,
-        "num_classes": default_classifier.num_classes,
-        "class_names": default_classifier.class_names,
-        "labels_configured": labels_are_configured(default_classifier.class_names),
+        "default_model_id": default_model.get("model_id"),
+        "default_model_name": default_model.get("display_name"),
+        "input_shape": default_model.get("input_shape"),
+        "num_classes": default_model.get("num_classes"),
+        "class_names": BEST9_CLASS_LIST,
+        "labels_configured": True,
         "supports_estimated_counts": True,
         "supports_slide_count": True,
         "supports_grid_estimation": True,
@@ -104,7 +155,7 @@ def info() -> dict[str, Any]:
         ),
         "diagnostic_group_map": DIAGNOSTIC_GROUP_BY_LABEL,
         "clinical_flag_rules": load_clinical_flag_rules(),
-        "available_models": _build_available_models(),
+        "available_models": models,
         "model_benchmarks": _load_model_benchmarks(),
         "database": database_health(),
     }
