@@ -8,6 +8,16 @@
 
 set -e
 
+# ── Suppress noisy ML library warnings ──────────────────────────────────
+export TF_CPP_MIN_LOG_LEVEL=3
+export TF_ENABLE_ONEDNN_OPTS=0
+export MPLBACKEND=Agg
+export MPLCONFIGDIR=/tmp/matplotlib
+export TF_CPP_MIN_VLOG_LEVEL=0
+export KMP_WARNINGS=0
+export GRPC_VERBOSITY=ERROR
+export PYTHONWARNINGS=ignore
+
 # Đường dẫn model (tính từ /app)
 MODEL_DIR="./models/detectors"
 MODEL_PATH="$MODEL_DIR/best9.onnx"
@@ -17,6 +27,9 @@ mkdir -p "$MODEL_DIR"
 mkdir -p "./models/classifiers"
 mkdir -p "./data"
 mkdir -p "./logs"
+
+# Tạo matplotlib cache directory để tránh regenerating font cache mỗi lần
+mkdir -p /tmp/matplotlib
 
 # Kiểm tra model đã tồn tại trong image chưa
 if [ ! -f "$MODEL_PATH" ]; then

@@ -1,9 +1,19 @@
 """
 main.py - HemaVision AI Backend
 """
+import os
 import sys
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+
+# ── Suppress noisy TensorFlow/ML warnings at import time ──────────────────
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"          # Suppress TF info/warnings
+os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"          # Disable oneDNN messages
+os.environ["MPLBACKEND"] = "Agg"                   # Non-interactive matplotlib
+os.environ["MPLCONFIGDIR"] = "/tmp/matplotlib"     # Avoid font cache regeneration
+os.environ["TF_CPP_MIN_VLOG_LEVEL"] = "0"          # Suppress verbose logging
+os.environ["KMP_WARNINGS"] = "0"                   # Suppress KMP warnings
+os.environ["GRPC_VERBOSITY"] = "ERROR"             # Suppress gRPC noise
 
 from fastapi import FastAPI, Request, Response
 from fastapi.exceptions import RequestValidationError
@@ -134,25 +144,24 @@ def _patch_ultralytics_modules():
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
-    """Application startup and shutdown lifecycle."""
+    """Application startup and shutdown lifecycle.
+    
+    CRITICAL: Do NOT load any ML models here! TensorFlow, PyTorch, ONNX, 
+    and Ultralytics models are heavy (~200-400MB each). Loading them all 
+    at startup will cause OOM crash on Render Free Tier (512MB RAM).
+    
+    Models are lazy-loaded on first request via:
+    - classifier_service.py: initialize_classifier_registry() 
+    - analysis_service.py: initialize_detection_runtime()
+    - analysis_onnx_service.py: Best9ONNXService.get_instance()
+    """
     logger.info("Initializing system registries and dependencies...")
-    # Lazy-import heavy ML libraries (tensorflow, torch, ultralytics)
-    # to avoid OOM crash on Render Free Tier (512MB RAM) at startup.
-    # These will be loaded on-demand when the first analysis request hits.
-    from backend.app.services.classifier_service import initialize_classifier_registry
-    from backend.app.services.analysis_service import initialize_detection_runtime
-    try:
-        initialize_classifier_registry()
-    except Exception as exc:
-        logger.warning("Classifier registry init deferred (will lazy-load): %s", exc)
-    try:
-        initialize_detection_runtime()
-    except Exception as exc:
-        logger.warning("Detection runtime init deferred (will lazy-load): %s", exc)
+    # Only initialize lightweight services (database, config)
+    # ML models are loaded on-demand when the first analysis request hits.
     initialize_database()
     sync_model_catalog()
     apply_database_label_overrides()
-    logger.info("Application startup complete.")
+    logger.info("Application startup complete. ML models will lazy-load on first request.")
     yield
     logger.info("Application shutting down...")
 

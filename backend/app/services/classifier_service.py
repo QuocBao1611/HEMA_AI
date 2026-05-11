@@ -333,6 +333,8 @@ def initialize_classifier_registry() -> tuple[dict[str, LoadedClassifier], str]:
             loaded_model = None  # Best9ONNXService is loaded lazily or handled elsewhere
         else:
             import tensorflow as _tf
+            # Suppress "compiled metrics have yet to be built" warning
+            _tf.get_logger().setLevel("ERROR")
             loaded_model = _tf.keras.models.load_model(compatible_path)
             input_height = int(loaded_model.input_shape[1])
             input_width = int(loaded_model.input_shape[2])

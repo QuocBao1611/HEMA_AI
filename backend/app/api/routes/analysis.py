@@ -1,4 +1,5 @@
 import asyncio
+import gc
 from typing import Any
 
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
@@ -35,7 +36,26 @@ from backend.app.services.persistence_service import record_analysis
 router = APIRouter(prefix="/api/v1", tags=["analysis"])
 
 logger = get_logger("analysis_routes")
-inference_semaphore = asyncio.Semaphore(2)
+inference_semaphore = asyncio.Semaphore(1)  # Only 1 concurrent inference to avoid OOM
+
+
+def _cleanup_memory() -> None:
+    """Force garbage collection after each analysis to free RAM.
+    
+    Critical for Render Free Tier (512MB RAM). After each inference:
+    - Large numpy arrays, tensors, and image data are freed
+    - gc.collect() releases memory back to the OS
+    """
+    gc.collect()
+    # Also try to clear any cached large objects
+    import ctypes
+    try:
+        libc = ctypes.CDLL("libc.so.6")
+        libc.malloc_trim(0)
+    except Exception:
+        pass  # malloc_trim not available on all systems (e.g., Alpine Linux)
+    logger.debug("Memory cleanup completed")
+
 
 
 async def _run_slide_analysis(
@@ -87,6 +107,7 @@ async def _run_slide_analysis(
                 "max_detections": normalized_max_detections,
             },
         )
+        _cleanup_memory()
         return result
 
     async with inference_semaphore:
@@ -114,6 +135,7 @@ async def _run_slide_analysis(
             "max_detections": normalized_max_detections,
         },
     )
+    _cleanup_memory()
     return result
 
 
@@ -152,6 +174,7 @@ async def predict(
         "predictions": prediction_items,
     }
     record_analysis(result, {"model_id": classifier.model_id})
+    _cleanup_memory()
     return result
 
 
@@ -218,6 +241,7 @@ async def analyze_grid(
             "max_regions": normalized_max_regions,
         },
     )
+    _cleanup_memory()
     return result
 
 
@@ -319,4 +343,5 @@ async def compare_models(
             "max_detections": normalized_max_detections,
         },
     )
+    _cleanup_memory()
     return result

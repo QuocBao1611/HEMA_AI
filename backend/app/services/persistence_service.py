@@ -129,11 +129,43 @@ def initialize_database() -> tuple[bool, str | None]:
 
 
 def sync_model_catalog() -> tuple[bool, str | None]:
+    """Sync model catalog with DB using file discovery only (no model loading).
+    
+    CRITICAL: This function must NOT call get_classifier_registry() or any 
+    function that loads ML models (TensorFlow, PyTorch, ONNX). Model loading 
+    happens lazily on first request to avoid OOM on Render Free Tier (512MB RAM).
+    """
     if not database_health()["ready"]:
         return False, database_health()["last_error"]  # type: ignore[index]
 
-    registry = get_classifier_registry()
-    default_model_id = get_default_model_id()
+    # Use file discovery only - no model loading
+    from backend.app.services.classifier_service import discover_model_paths, load_model_manifest, slugify_model_id
+    from backend.app.core.paths import YOLO_MODEL_PATH
+    
+    manifest = load_model_manifest()
+    model_paths = discover_model_paths()
+    
+    # Build a lightweight catalog from file metadata only
+    catalog_entries: list[dict] = []
+    for model_path in model_paths:
+        manifest_entry = manifest.get(model_path.name, {})
+        base_id = slugify_model_id(str(manifest_entry.get("model_id") or model_path.stem))
+        if model_path.name == "best (9).pt" or model_path.stem == "best9":
+            base_id = "best9"
+        display_name = str(manifest_entry.get("display_name") or model_path.stem.replace("_", " "))
+        if base_id == "best9":
+            display_name = "Best9 YOLO (unified)"
+        catalog_entries.append({
+            "model_id": base_id,
+            "display_name": display_name,
+            "source_path": model_path.name,
+            "loaded_path": model_path.name,
+            "preprocessing": str(manifest_entry.get("preprocessing", "mobilenet_v2")),
+            "num_classes": int(manifest_entry.get("num_classes", 14)),
+            "input_shape": manifest_entry.get("input_shape", [224, 224, 3]),
+        })
+    
+    default_model_id = "mobilenetv2_phase2_best" if any(e["model_id"] == "mobilenetv2_phase2_best" for e in catalog_entries) else (catalog_entries[0]["model_id"] if catalog_entries else "best9")
 
     try:
         with open_session() as db:
@@ -142,24 +174,23 @@ def sync_model_catalog() -> tuple[bool, str | None]:
                 for item in db.execute(select(ModelCatalog)).scalars().all()
             }
             persisted_default_id = next(
-                (item.model_id for item in existing.values() if item.is_default and item.model_id in registry),
+                (item.model_id for item in existing.values() if item.is_default and item.model_id in {e["model_id"] for e in catalog_entries}),
                 None,
             )
             if persisted_default_id:
-                force_default_model(persisted_default_id)
                 default_model_id = persisted_default_id
-            for classifier in registry.values():
-                record = existing.get(classifier.model_id)
+            for entry in catalog_entries:
+                record = existing.get(entry["model_id"])
                 if record is None:
-                    record = ModelCatalog(model_id=classifier.model_id)
+                    record = ModelCatalog(model_id=entry["model_id"])
                     db.add(record)
-                record.display_name = classifier.display_name
-                record.source_path = classifier.source_path.name
-                record.loaded_path = classifier.loaded_path.name
-                record.preprocessing = classifier.preprocessing
-                record.num_classes = classifier.num_classes
-                record.input_shape = classifier.input_shape
-                record.is_default = classifier.model_id == default_model_id
+                record.display_name = entry["display_name"]
+                record.source_path = entry["source_path"]
+                record.loaded_path = entry["loaded_path"]
+                record.preprocessing = entry["preprocessing"]
+                record.num_classes = entry["num_classes"]
+                record.input_shape = entry["input_shape"]
+                record.is_default = entry["model_id"] == default_model_id
             db.commit()
         return True, None
     except SQLAlchemyError:

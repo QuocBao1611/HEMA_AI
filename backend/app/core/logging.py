@@ -36,6 +36,18 @@ def setup_logging() -> None:
     # Mute noisy third-party loggers if needed
     logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
     logging.getLogger("sqlalchemy.engine").setLevel(logging.INFO if settings.database_echo else logging.WARNING)
+    
+    # Suppress matplotlib fontManager noise (regenerated each startup)
+    logging.getLogger("matplotlib.font_manager").setLevel(logging.WARNING)
+    logging.getLogger("matplotlib").setLevel(logging.WARNING)
+    
+    # Suppress TensorFlow/Keras compile metrics warnings
+    logging.getLogger("tensorflow").setLevel(logging.ERROR)
+    logging.getLogger("keras").setLevel(logging.ERROR)
+    logging.getLogger("absl").setLevel(logging.ERROR)
+    
+    # Suppress PIL debug messages
+    logging.getLogger("PIL").setLevel(logging.WARNING)
 
 def get_logger(name: str) -> logging.Logger:
     return logging.getLogger(f"hemavision.{name}")

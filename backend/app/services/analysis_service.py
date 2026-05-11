@@ -19,10 +19,10 @@ from backend.app.services.analysis_onnx_service import Best9ONNXService
 DEFAULT_CONFIDENCE_THRESHOLD = 0.5
 BEST9_CONFIDENCE_THRESHOLD   = 0.25   # WBC hiếm (EO/ERB/MO) cần ngưỡng thấp hơn
 DEFAULT_OVERLAP_RATIO = 0.25
-DEFAULT_MAX_REGIONS = 144
+DEFAULT_MAX_REGIONS = 64   # Reduced from 144 to save RAM on Render Free Tier (512MB)
 DEFAULT_PADDING_RATIO = 0.10
 DEFAULT_MIN_COMPONENT_AREA = 300  # ~18x18px — loại artifact bụi nhỏ, giữ PLT thật (~20-35px)
-DEFAULT_MAX_DETECTIONS = 256
+DEFAULT_MAX_DETECTIONS = 128  # Reduced from 256 to save RAM on Render Free Tier (512MB)
 DETECTION_MAX_DIMENSION = 1536
 MIN_COMPONENT_SIDE = 18  # PLT thật ≥ 20px/chiều; bụi artifact ≤ 12px
 
