@@ -21,6 +21,9 @@ ENV NODE_OPTIONS="--max-old-space-size=384"
 ARG NEXT_PUBLIC_API_URL
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
 
+ARG INTERNAL_API_URL
+ENV INTERNAL_API_URL=${INTERNAL_API_URL}
+
 # Build Next.js with standalone output (must be configured in next.config.ts)
 RUN npm run build
 
@@ -54,5 +57,5 @@ ENV PORT 3000
 ENV HOSTNAME "0.0.0.0"
 
 # Note: server.js is created by next build from the standalone output
-# Try multiple possible locations for server.js
-CMD ["sh", "-c", "if [ -f server.js ]; then exec node server.js; elif [ -f .next/standalone/server.js ]; then exec node .next/standalone/server.js; else echo '=== DEBUG: server.js not found, listing /app ===' && ls -la /app/ && echo '=== DEBUG: listing /app/.next ===' && ls -la /app/.next/ 2>/dev/null && echo '=== DEBUG: listing /app/.next/standalone ===' && ls -la /app/.next/standalone/ 2>/dev/null && echo '=== Falling back to next start ===' && npx next start; fi"]
+# Với Next.js standalone, server.js nằm ở root của .next/standalone
+CMD ["node", "server.js"]

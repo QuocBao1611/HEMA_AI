@@ -1,19 +1,27 @@
 import { ZodSchema } from "zod";
 
-const defaultBaseUrl = "http://localhost:8000/api/v1";
+// QUAN TRỌNG: Dùng relative URL /api/v1 để Next.js rewrites proxy sang backend
+// Khi deploy lên Render, browser sẽ gọi /api/v1/* trên cùng domain frontend
+// Next.js server sẽ rewrite các request này sang backend URL thật
+const defaultBaseUrl = "/api/v1";
 
 let base = "";
 if (typeof window === "undefined") {
-  // Server-side: prefer internal network URL if running in Docker
+  // Server-side: dùng INTERNAL_API_URL để gọi trực tiếp backend
   base = process.env.INTERNAL_API_URL || process.env.NEXT_PUBLIC_API_URL || defaultBaseUrl;
 } else {
-  // Client-side: use public URL
+  // Client-side: dùng NEXT_PUBLIC_API_URL (nên là relative /api/v1)
   base = process.env.NEXT_PUBLIC_API_URL || defaultBaseUrl;
 }
 
 base = base.replace(/\/+$/, "");
+// Đảm bảo base kết thúc bằng /api/v1
 if (!base.endsWith("/api/v1")) {
-  base = `${base}/api/v1`;
+  // Nếu base là URL đầy đủ (https://...), thêm /api/v1 vào cuối
+  if (base.startsWith("http")) {
+    base = `${base}/api/v1`;
+  }
+  // Nếu là relative path, giữ nguyên
 }
 export const apiBaseUrl = base;
 
@@ -62,7 +70,7 @@ export async function apiRequest<T>(
   { schema, headers, ...init }: RequestOptions = {},
 ): Promise<T> {
   const targetPath = path.startsWith("/") ? path : `/${path}`;
-  
+
   // Get token from zustand store
   // Note: Since this is outside a component, we use the store's getState()
   const { token } = (await import("@/stores/auth-store")).useAuthStore.getState();

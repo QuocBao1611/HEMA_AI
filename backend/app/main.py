@@ -225,11 +225,14 @@ async def security_and_logging_middleware(request: Request, call_next):
     return response
 
 
-# ── Dynamic CORS origin validation ─────────────────────────────────────
-# Allow known local/dev origins + any Render frontend subdomain pattern
-# Render generates random subdomain suffixes like hema-frontend-0os3.onrender.com
+# ── CORS configuration ────────────────────────────────────────────────
+# Allow known origins: local dev + Render frontend (hmai-frontend)
+# Sử dụng allow_origins=["*"] cho đơn giản, vì Render free tier có IP thay đổi
+# NHƯNG allow_origins=["*"] không hoạt động với allow_credentials=True
+# Nên ta dùng danh sách cụ thể + pattern cho Render
+
 _RENDER_FRONTEND_PATTERN = re.compile(
-    r"^https://hema-frontend[-a-zA-Z0-9]*\.onrender\.com$"
+    r"^https://hmai-frontend[-a-zA-Z0-9]*\.onrender\.com$"
 )
 
 _cors_origins = [
@@ -237,12 +240,15 @@ _cors_origins = [
     "http://127.0.0.1:3000",
     "http://localhost:8000",
     "http://127.0.0.1:8000",
+    "https://hmai-frontend.onrender.com",
     *list(settings.cors_allow_origins),
 ]
 
 
 def _cors_origin_validate(origin: str) -> bool:
     """Check if an origin is allowed (static list or Render frontend pattern)."""
+    if not origin:
+        return True  # Allow non-browser requests (server-to-server)
     if origin in _cors_origins:
         return True
     if _RENDER_FRONTEND_PATTERN.match(origin):

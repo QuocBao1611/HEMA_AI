@@ -1,8 +1,12 @@
 # render.yaml - Blueprints for Render.com
+# Dùng cho project HMAI trên Render
+# Backend: https://hmai-backend.onrender.com
+# Frontend: https://hmai-frontend.onrender.com
+
 services:
   # ─── BACKEND: FastAPI + ONNX ───────────────────────────────────────
   - type: web
-    name: hema-backend
+    name: hmai-backend
     runtime: docker
     dockerContext: .
     dockerfilePath: backend/Dockerfile
@@ -19,36 +23,37 @@ services:
         generateValue: true
       - key: DATABASE_URL
         value: "sqlite:///./data/hemavision.sqlite3"
+      # FRONTEND_URL dùng cho CORS - cho phép cả frontend Render và local dev
       - key: FRONTEND_URL
-        value: "https://hema-frontend-0os3.onrender.com"
+        value: "https://hmai-frontend.onrender.com"
+      # CORS_ALLOW_ORIGINS: cho phép tất cả origin cần thiết
       - key: CORS_ALLOW_ORIGINS
-        value: "https://hema-frontend-0os3.onrender.com,https://hema-frontend.onrender.com,http://localhost:3000,http://127.0.0.1:3000"
+        value: "https://hmai-frontend.onrender.com,https://hmai-frontend.onrender.com,http://localhost:3000,http://127.0.0.1:3000"
       - key: APP_NAME
-        value: "HemaVision AI"
+        value: "HMAI - HemaVision AI"
       - key: LOG_LEVEL
         value: "INFO"
       - key: INFERENCE_RATE_LIMIT
         value: "30/minute"
-      # Google Drive file ID for best9.onnx model download at startup
-      # Set this to your actual Google Drive file ID for automatic model download
+      # Google Drive file ID cho best9.onnx model download tại startup
       - key: MODEL_GDRIVE_ID
         sync: false
-      # Optional: uncomment and set your actual Google Drive file ID
-      # - key: MODEL_GDRIVE_ID
-      #   value: "YOUR_FILE_ID_HERE"
 
   # ─── FRONTEND: Next.js Standalone ─────────────────────────────────
   - type: web
-    name: hema-frontend
+    name: hmai-frontend
     runtime: docker
     region: singapore
     plan: free
     dockerContext: ./frontend-next
     dockerfilePath: frontend-next/Dockerfile
     envVars:
+      # QUAN TRỌNG: Dùng relative path /api/v1 để browser tự động gọi đúng backend
+      # Khi deploy, Render sẽ proxy /api/* từ frontend sang backend
       - key: NEXT_PUBLIC_API_URL
-        value: "https://hema-backend.onrender.com/api/v1"
+        value: "/api/v1"
+      # INTERNAL_API_URL dùng cho server-side rendering (SSR) gọi trực tiếp backend
       - key: INTERNAL_API_URL
-        value: "https://hema-backend.onrender.com/api/v1"
+        value: "https://hmai-backend.onrender.com/api/v1"
       - key: NEXT_TELEMETRY_DISABLED
         value: "1"
