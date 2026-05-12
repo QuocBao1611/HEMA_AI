@@ -41,11 +41,6 @@ def setup_logging() -> None:
     logging.getLogger("matplotlib.font_manager").setLevel(logging.WARNING)
     logging.getLogger("matplotlib").setLevel(logging.WARNING)
     
-    # Suppress TensorFlow/Keras compile metrics warnings
-    logging.getLogger("tensorflow").setLevel(logging.ERROR)
-    logging.getLogger("keras").setLevel(logging.ERROR)
-    logging.getLogger("absl").setLevel(logging.ERROR)
-    
     # Suppress PIL debug messages
     logging.getLogger("PIL").setLevel(logging.WARNING)
 

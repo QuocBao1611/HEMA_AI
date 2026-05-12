@@ -3,8 +3,10 @@ from typing import Any
 
 import cv2
 import numpy as np
+import onnxruntime as ort
 from fastapi import HTTPException
 from PIL import Image
+
 
 from backend.app.core.paths import DETECTOR_MODELS_DIR, YOLO_MODEL_PATH
 from backend.app.services.classifier_service import (
@@ -44,9 +46,8 @@ DIAGNOSTIC_GROUP_BY_LABEL = {
 WBC_DIFFERENTIAL_LABELS = {"BA", "EO", "IG", "LY", "MO", "NE"}
 RESAMPLING = getattr(Image, "Resampling", Image)
 
-# Lazy-loaded: YOLO type is imported on-demand to avoid OOM on Render Free Tier
-_YOLO_MODEL: Any = None
-_YOLO_MODELS: dict[str, Any] = {}
+# ONNX Runtime sessions for YOLO detectors (lazy-loaded)
+_YOLO_ONNX_SESSIONS: dict[str, ort.InferenceSession] = {}
 
 # Class names embedded in best (9).pt (from pt['model'].names)
 BEST9_CLASS_NAMES: dict[int, str] = {
@@ -62,11 +63,10 @@ def slugify_detector_id(path: Path) -> str:
 
 
 def discover_detector_paths() -> list[Path]:
-    paths = sorted(DETECTOR_MODELS_DIR.glob("*.pt"))
-    paths.extend(sorted(DETECTOR_MODELS_DIR.glob("*.onnx")))
-    if YOLO_MODEL_PATH.exists() and YOLO_MODEL_PATH not in paths:
-        paths.insert(0, YOLO_MODEL_PATH)
+    """Chỉ scan .onnx files — không còn hỗ trợ .pt (ultralytics)."""
+    paths = sorted(DETECTOR_MODELS_DIR.glob("*.onnx"))
     return paths
+
 
 
 def is_unified_detector(detector_id: str) -> bool:
@@ -96,7 +96,7 @@ def list_detector_models() -> list[dict[str, str]]:
 def resolve_detector_path(detector_model_id: str | None = None) -> Path:
     paths = discover_detector_paths()
     if not paths:
-        raise RuntimeError("Không tìm thấy file detector .pt trong thư mục models/detectors.")
+        raise RuntimeError("Không tìm thấy file detector .onnx trong thư mục models/detectors.")
 
     registry = {slugify_detector_id(path): path for path in paths}
     default_id = slugify_detector_id(YOLO_MODEL_PATH) if YOLO_MODEL_PATH.exists() else slugify_detector_id(paths[0])
@@ -107,19 +107,96 @@ def resolve_detector_path(detector_model_id: str | None = None) -> Path:
     return path
 
 
-def initialize_detection_runtime(detector_model_id: str | None = None) -> Any:
-    """Initialize YOLO detection runtime (lazy-imports ultralytics to save RAM)."""
-    global _YOLO_MODEL
+def _make_onnx_session_opts() -> ort.SessionOptions:
+    opts = ort.SessionOptions()
+    opts.intra_op_num_threads = 1
+    opts.inter_op_num_threads = 1
+    opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+    return opts
+
+
+def _yolo_preprocess(image: np.ndarray, imgsz: int = 640):
+    """YOLO preprocessing: letterbox resize + normalize + NCHW."""
+    h0, w0 = image.shape[:2]
+    scale = imgsz / max(h0, w0)
+    nh, nw = int(h0 * scale), int(w0 * scale)
+
+    resized = cv2.resize(image, (nw, nh), interpolation=cv2.INTER_LINEAR)
+    canvas = np.full((imgsz, imgsz, 3), 114, dtype=np.uint8)
+    pt = (imgsz - nh) // 2
+    pl = (imgsz - nw) // 2
+    canvas[pt:pt+nh, pl:pl+nw] = resized
+
+    tensor = canvas.astype(np.float32) / 255.0
+    tensor = np.transpose(tensor, (2, 0, 1))[np.newaxis]  # NCHW
+
+    meta = {"scale": scale, "pad_top": pt, "pad_left": pl,
+            "orig_h": h0, "orig_w": w0}
+    return tensor, meta
+
+
+def _yolo_postprocess(outputs: list, meta: dict, conf_thres: float = 0.20, iou_thres: float = 0.45):
+    """YOLOv8 ONNX postprocessing: extract boxes, NMS, return xyxy list."""
+    pred = outputs[0]
+    if pred.ndim == 3 and pred.shape[1] < pred.shape[2]:
+        pred = np.transpose(pred, (0, 2, 1))
+    pred = pred[0]
+
+    scale = meta["scale"]
+    pl, pt = meta["pad_left"], meta["pad_top"]
+    ow, oh = meta["orig_w"], meta["orig_h"]
+
+    # YOLOv8: [cx, cy, w, h, cls1, cls2, ...]
+    num_classes = pred.shape[1] - 4
+    raw_boxes, raw_scores = [], []
+
+    for det in pred:
+        cx, cy, w, h = det[:4]
+        cls_scores = det[4:]
+        conf = cls_scores.max()
+        if conf < conf_thres:
+            continue
+
+        x1 = np.clip((cx - w/2 - pl) / scale, 0, ow)
+        y1 = np.clip((cy - h/2 - pt) / scale, 0, oh)
+        x2 = np.clip((cx + w/2 - pl) / scale, 0, ow)
+        y2 = np.clip((cy + h/2 - pt) / scale, 0, oh)
+
+        raw_boxes.append([x1, y1, x2 - x1, y2 - y1])
+        raw_scores.append(float(conf))
+
+    if not raw_boxes:
+        return []
+
+    indices = cv2.dnn.NMSBoxes(raw_boxes, raw_scores, conf_thres, iou_thres)
+    kept = []
+    for i in (indices.flatten() if len(indices) else []):
+        x, y, w, h = raw_boxes[i]
+        kept.append({
+            "x1": int(round(x)),
+            "y1": int(round(y)),
+            "x2": int(round(x + w)),
+            "y2": int(round(y + h)),
+        })
+    return kept
+
+
+def initialize_detection_runtime(detector_model_id: str | None = None) -> ort.InferenceSession:
+    """Initialize YOLO ONNX detection runtime (no ultralytics needed)."""
+    global _YOLO_ONNX_SESSIONS
     detector_path = resolve_detector_path(detector_model_id)
     detector_id = slugify_detector_id(detector_path)
-    if detector_model_id is None and _YOLO_MODEL is not None and detector_id == slugify_detector_id(YOLO_MODEL_PATH):
-        return _YOLO_MODEL
-    if detector_id not in _YOLO_MODELS:
-        from ultralytics import YOLO as _YOLO_CLS
-        _YOLO_MODELS[detector_id] = _YOLO_CLS(detector_path)
-    if detector_id == slugify_detector_id(YOLO_MODEL_PATH):
-        _YOLO_MODEL = _YOLO_MODELS[detector_id]
-    return _YOLO_MODELS[detector_id]
+
+    if detector_id not in _YOLO_ONNX_SESSIONS:
+        if not detector_path.exists() or detector_path.stat().st_size == 0:
+            raise RuntimeError(f"Detector ONNX file not found or empty: {detector_path}")
+        _YOLO_ONNX_SESSIONS[detector_id] = ort.InferenceSession(
+            str(detector_path),
+            sess_options=_make_onnx_session_opts(),
+            providers=["CPUExecutionProvider"],
+        )
+    return _YOLO_ONNX_SESSIONS[detector_id]
+
 
 
 def normalize_probability_value(value: float, field_name: str) -> float:
@@ -423,14 +500,16 @@ def detect_cell_boxes(
 
     t1 = time.perf_counter()
 
-    # Bước 3: YOLO chạy trên ảnh đã resize (nhanh hơn đáng kể so với ảnh gốc)
-    yolo_model = initialize_detection_runtime(detector_model_id)
-    results = yolo_model(detection_image, conf=0.20, verbose=False, imgsz=640)
-    boxes_result = results[0].boxes.data.cpu().numpy()
+    # Bước 3: YOLO ONNX inference trên ảnh đã resize
+    yolo_session = initialize_detection_runtime(detector_model_id)
+    image_np = image_to_rgb_array(detection_image)
+    tensor, meta = _yolo_preprocess(image_np, imgsz=640)
+    input_name = yolo_session.get_inputs()[0].name
+    outputs = yolo_session.run(None, {input_name: tensor})
+    yolo_boxes = _yolo_postprocess(outputs, meta, conf_thres=0.20, iou_thres=0.45)
 
-    for row in boxes_result:
-        x1_raw, y1_raw, x2_raw, y2_raw, _conf, _cls = row
-        area = (x2_raw - x1_raw) * (y2_raw - y1_raw)
+    for box in yolo_boxes:
+        area = (box["x2"] - box["x1"]) * (box["y2"] - box["y1"])
         if area < min_component_area:
             continue
         if area > total_pixels * 0.25:
@@ -438,12 +517,13 @@ def detect_cell_boxes(
         # Scale bbox từ detection_image (resize) về kích thước ảnh gốc
         raw_boxes.append(
             {
-                "x1": int(round(x1_raw / scale)),
-                "y1": int(round(y1_raw / scale)),
-                "x2": int(round(x2_raw / scale)),
-                "y2": int(round(y2_raw / scale)),
+                "x1": int(round(box["x1"] / scale)),
+                "y1": int(round(box["y1"] / scale)),
+                "x2": int(round(box["x2"] / scale)),
+                "y2": int(round(box["y2"] / scale)),
             }
         )
+
 
     t2 = time.perf_counter()
 

@@ -45,6 +45,12 @@ best9_result.jpg
 *.pt
 *.keras
 
-# Ngoại lệ: best9.onnx được force-add để dùng trong Docker build (Render Free Tier)
-# File này cần có trong repo để COPY vào Docker image, tránh tải từ Google Drive
-!models/detectors/best9.onnx
+# Ngoại lệ: .onnx files được force-add để dùng trong Docker build (Render Free Tier)
+# Các file này cần có trong repo để COPY vào Docker image, tránh tải từ Google Drive
+!models/**/*.onnx
+
+# === Test artifacts ===
+test_output.txt
+convert_log.txt
+
+

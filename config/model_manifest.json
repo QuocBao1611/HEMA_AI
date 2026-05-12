@@ -1,16 +1,14 @@
 {
   "models": {
-    "mobilenetv2_final_finetuned.h5": {
-      "display_name": "MobileNetV2 Fine-tuned",
-      "preprocessing": "mobilenet_v2"
-    },
-    "mobilenetv2_phase2_best.h5": {
+    "mobilenetv2_phase2_best.onnx": {
       "display_name": "MobileNetV2 Phase2 Best",
-      "preprocessing": "mobilenet_v2"
+      "preprocessing": "mobilenet_v2",
+      "model_id": "mobilenetv2_phase2_best"
     },
-    "best_model_v2.keras": {
+    "best_model_v2.onnx": {
       "display_name": "Best Model V2 (ResNet50)",
-      "preprocessing": "resnet50"
+      "preprocessing": "resnet50",
+      "model_id": "best_model_v2"
     }
   }
 }

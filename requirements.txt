@@ -24,13 +24,5 @@ python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
 bcrypt==4.0.1
 
-# HDF5 for model sanitization
+# HDF5 for model sanitization (optional, kept for backward compat)
 h5py==3.14.0
-
-# TensorFlow CPU-only - for classifier models (.h5/.keras)
-tensorflow-cpu==2.18.1
-
-# PyTorch CPU-only + Ultralytics YOLO - for detection models
-torch==2.6.0
-torchvision==0.21.0
-ultralytics==8.3.100

@@ -36,18 +36,10 @@ services:
       - key: INFERENCE_RATE_LIMIT
         value: "30/minute"
       # ── ML Library Warning Suppression ─────────────────────────────
-      - key: TF_CPP_MIN_LOG_LEVEL
-        value: "3"
-      - key: TF_ENABLE_ONEDNN_OPTS
-        value: "0"
       - key: MPLBACKEND
         value: "Agg"
       - key: MPLCONFIGDIR
         value: "/tmp/matplotlib"
-      - key: KMP_WARNINGS
-        value: "0"
-      - key: GRPC_VERBOSITY
-        value: "ERROR"
   # ─── FRONTEND: Next.js Standalone ─────────────────────────────────
   - type: web
     name: hmai-frontend

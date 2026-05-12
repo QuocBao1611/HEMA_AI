@@ -2,20 +2,14 @@
 # startup.sh - Tối ưu cho Render Free Tier
 # Chạy từ WORKDIR /app (xem Dockerfile)
 #
-# QUAN TRỌNG: Không tải model từ Google Drive ở đây vì Render Free Tier
-# (512MB RAM) sẽ bị crash/OOM khi dùng gdown. Model best9.onnx đã được
-# COPY vào Docker image qua Dockerfile (COPY models/ ./models/).
+# QUAN TRỌNG: Không cần TF/PyTorch env vars nữa vì đã bỏ hoàn toàn.
+# Tất cả models đã là .onnx và được COPY vào Docker image.
 
 set -e
 
 # ── Suppress noisy ML library warnings ──────────────────────────────────
-export TF_CPP_MIN_LOG_LEVEL=3
-export TF_ENABLE_ONEDNN_OPTS=0
 export MPLBACKEND=Agg
 export MPLCONFIGDIR=/tmp/matplotlib
-export TF_CPP_MIN_VLOG_LEVEL=0
-export KMP_WARNINGS=0
-export GRPC_VERBOSITY=ERROR
 export PYTHONWARNINGS=ignore
 
 # Đường dẫn model (tính từ /app)

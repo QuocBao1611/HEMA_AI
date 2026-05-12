@@ -1,14 +1,21 @@
+"""
+classifier_service.py — ONNX-only version
+==========================================
+Đã loại bỏ hoàn toàn tensorflow và ultralytics.
+Tất cả models phải ở định dạng .onnx trước khi deploy.
+
+Script convert: scripts/convert_to_onnx.py
+"""
 import io
 import json
 import re
-import shutil
-import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import h5py
+import h5py  # noqa: F401 — kept for backward compat check, can be removed after migration
 import numpy as np
+import onnxruntime as ort
 from fastapi import HTTPException
 from PIL import Image
 
@@ -27,13 +34,67 @@ DEFAULT_MODEL_PREPROCESSING = "mobilenet_v2"
 RESAMPLING = getattr(Image, "Resampling", Image)
 
 
+# ── ONNX Session Options (shared) ──────────────────────────────────────────
+def _make_session_options() -> ort.SessionOptions:
+    opts = ort.SessionOptions()
+    opts.intra_op_num_threads = 1          # Render Free: 0.1 vCPU shared
+    opts.inter_op_num_threads = 1
+    opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+    return opts
+
+
+# ── OnnxClassifierAdapter ───────────────────────────────────────────────────
+class OnnxClassifierAdapter:
+    """
+    Unified ONNX inference adapter cho cả TF/Keras và YOLO models đã convert.
+    Thread-safe (ort.InferenceSession là thread-safe sau khi khởi tạo).
+    """
+
+    def __init__(self, model_path: Path):
+        self.model_path = model_path
+        self._session: ort.InferenceSession | None = None
+        self._input_name: str | None = None
+
+    def _load(self) -> ort.InferenceSession:
+        if self._session is None:
+            if not self.model_path.exists() or self.model_path.stat().st_size == 0:
+                raise HTTPException(
+                    status_code=503,
+                    detail=f"Model file không tìm thấy hoặc rỗng: {self.model_path.name}",
+                )
+            self._session = ort.InferenceSession(
+                str(self.model_path),
+                sess_options=_make_session_options(),
+                providers=["CPUExecutionProvider"],
+            )
+            self._input_name = self._session.get_inputs()[0].name
+        return self._session
+
+    @property
+    def input_name(self) -> str:
+        self._load()
+        return self._input_name  # type: ignore[return-value]
+
+    def predict(self, batch: np.ndarray, verbose: int | bool = 0) -> np.ndarray:
+        """
+        Args:
+            batch: shape (N, H, W, C) float32, đã qua preprocessing
+        Returns:
+            shape (N, num_classes) float32
+        """
+        sess = self._load()
+        outputs = sess.run(None, {self._input_name: batch.astype(np.float32)})
+        return np.asarray(outputs[0], dtype=np.float32)
+
+
+# ── LoadedClassifier dataclass ──────────────────────────────────────────────
 @dataclass
 class LoadedClassifier:
     model_id: str
     display_name: str
     source_path: Path
     loaded_path: Path
-    model: Any
+    model: OnnxClassifierAdapter
     input_height: int
     input_width: int
     num_classes: int
@@ -46,196 +107,60 @@ class LoadedClassifier:
         return [self.input_height, self.input_width, 3]
 
 
+# ── Registry globals ─────────────────────────────────────────────────────────
 _CLASSIFIER_REGISTRY: dict[str, LoadedClassifier] | None = None
 _DEFAULT_MODEL_ID: str | None = None
 
 
-class YoloClassificationAdapter:
-    def __init__(self, model_path: Path):
-        self.model_path = model_path
-        self._model: Any = None
-
-    def _load(self) -> Any:
-        if self._model is None:
-            try:
-                from ultralytics import YOLO as _YOLO_CLS
-                self._model = _YOLO_CLS(self.model_path)
-            except AttributeError as exc:
-                missing = str(exc)
-                raise HTTPException(
-                    status_code=500,
-                    detail=(
-                        "Không thể nạp Best9 YOLO vì môi trường thiếu custom layer trong checkpoint. "
-                        f"Chi tiết: {missing}"
-                    ),
-                ) from exc
-        return self._model
-
-    def predict(self, batch: np.ndarray, verbose: int | bool = 0) -> np.ndarray:
-        model = self._load()
-        images = [
-            Image.fromarray(np.clip(item, 0, 255).astype(np.uint8)).convert("RGB")
-            for item in np.asarray(batch)
-        ]
-        results = model.predict(images, verbose=bool(verbose))
-        vectors: list[np.ndarray] = []
-        for result in results:
-            probs = getattr(result, "probs", None)
-            if probs is not None:
-                vectors.append(probs.data.detach().cpu().numpy().astype(np.float32))
-            else:
-                # Fallback for detection models (Unified models like Best9)
-                nc = getattr(model.model, "nc", 14)
-                vector = np.zeros(nc, dtype=np.float32)
-                boxes = getattr(result, "boxes", None)
-                if boxes is not None and len(boxes) > 0:
-                    # Take the box with highest confidence
-                    best_idx = int(boxes.conf.argmax())
-                    cls_id = int(boxes.cls[best_idx])
-                    conf = float(boxes.conf[best_idx])
-                    if 0 <= cls_id < nc:
-                        vector[cls_id] = conf
-                vectors.append(vector)
-        return np.stack(vectors, axis=0)
-
-
-def _clean_config(obj: Any) -> Any:
-    if isinstance(obj, dict):
-        return {key: _clean_config(value) for key, value in obj.items() if key not in REMOVE_CONFIG_KEYS}
-    if isinstance(obj, list):
-        return [_clean_config(item) for item in obj]
-    return obj
-
-
-def discover_model_paths() -> list[Path]:
-    search_dirs = [CLASSIFIER_MODELS_DIR, DETECTOR_MODELS_DIR]
-    if PROJECT_ROOT not in search_dirs:
-        search_dirs.append(PROJECT_ROOT)
-
-    discovered_candidates: list[Path] = []
-    for search_dir in search_dirs:
-        if not search_dir.exists():
-            continue
-            
-        is_detector_dir = (search_dir == DETECTOR_MODELS_DIR)
-        
-        for ext in ["*.h5", "*.keras", "*.pt", "*.onnx"]:
-            for path in search_dir.glob(ext):
-                if "_sanitized" in path.stem:
-                    continue
-                
-                # Hide default generic detectors from classifier lists
-                if is_detector_dir and "yolov8n" in path.name.lower():
-                    continue
-                    
-                discovered_candidates.append(path)
-
-    discovered = sorted(
-        discovered_candidates,
-        key=lambda path: path.stat().st_mtime,
-        reverse=True,
-    )
-    if not discovered:
-        raise RuntimeError("Không tìm thấy file model .h5 hoặc .keras trong thư mục models/classifiers.")
-    return discovered
-
-
-def load_model_manifest() -> dict[str, dict[str, Any]]:
-    if not MODEL_MANIFEST_PATH.exists():
-        return {}
-
-    with MODEL_MANIFEST_PATH.open("r", encoding="utf-8") as file:
-        payload = json.load(file)
-
-    manifest_payload = payload.get("models") if isinstance(payload, dict) and "models" in payload else payload
-    if not isinstance(manifest_payload, dict):
-        raise RuntimeError("model_manifest.json phải là object hoặc có khóa 'models'.")
-
-    manifest: dict[str, dict[str, Any]] = {}
-    for key, value in manifest_payload.items():
-        if isinstance(value, dict):
-            manifest[str(key)] = value
-    return manifest
-
-
+# ── Helpers ──────────────────────────────────────────────────────────────────
 def slugify_model_id(value: str) -> str:
     normalized = re.sub(r"[^a-zA-Z0-9]+", "_", value).strip("_").lower()
     return normalized or "model"
 
 
-def build_sanitized_model_path(model_path: Path) -> Path:
-    return model_path.with_name(f"{model_path.stem}_sanitized{model_path.suffix}")
+def discover_model_paths() -> list[Path]:
+    """Chỉ scan .onnx files trong classifiers directory — detectors dùng analysis_service."""
+    discovered: list[Path] = []
 
-
-def ensure_sanitized_h5_model(model_path: Path, sanitized_path: Path) -> Path:
-    if sanitized_path.exists() and sanitized_path.stat().st_mtime >= model_path.stat().st_mtime:
-        return sanitized_path
-
-    shutil.copyfile(model_path, sanitized_path)
-    with h5py.File(sanitized_path, "r+") as h5_file:
-        for attr_name in ("model_config", "training_config"):
-            raw_config = h5_file.attrs.get(attr_name)
-            if raw_config is None:
+    if CLASSIFIER_MODELS_DIR.exists():
+        for path in sorted(CLASSIFIER_MODELS_DIR.glob("*.onnx")):
+            if "_sanitized" in path.stem:
                 continue
-            if isinstance(raw_config, bytes):
-                raw_config = raw_config.decode("utf-8")
-            cleaned_config = json.dumps(_clean_config(json.loads(raw_config)))
-            h5_file.attrs.modify(attr_name, cleaned_config)
-    return sanitized_path
+            discovered.append(path)
+
+    if not discovered:
+        raise RuntimeError(
+            "Không tìm thấy file model .onnx trong thư mục models/classifiers/. "
+            "Chạy scripts/convert_to_onnx.py trước."
+        )
+    return sorted(discovered, key=lambda p: p.stat().st_mtime, reverse=True)
 
 
-def ensure_sanitized_keras_model(model_path: Path, sanitized_path: Path) -> Path:
-    if sanitized_path.exists() and sanitized_path.stat().st_mtime >= model_path.stat().st_mtime:
-        return sanitized_path
 
-    with zipfile.ZipFile(model_path, "r") as zin, zipfile.ZipFile(
-        sanitized_path,
-        "w",
-        compression=zipfile.ZIP_DEFLATED,
-    ) as zout:
-        for info in zin.infolist():
-            data = zin.read(info.filename)
-            if info.filename == "config.json":
-                config = json.loads(data)
-                data = json.dumps(_clean_config(config)).encode("utf-8")
-            zout.writestr(info, data)
-    return sanitized_path
-
-
-def ensure_compatible_model(model_path: Path) -> Path:
-    if "_sanitized" in model_path.stem:
-        return model_path
-
-    sanitized_path = build_sanitized_model_path(model_path)
-    if model_path.suffix == ".h5":
-        return ensure_sanitized_h5_model(model_path, sanitized_path)
-    if model_path.suffix == ".keras":
-        return ensure_sanitized_keras_model(model_path, sanitized_path)
-    return model_path
+def load_model_manifest() -> dict[str, dict[str, Any]]:
+    if not MODEL_MANIFEST_PATH.exists():
+        return {}
+    with MODEL_MANIFEST_PATH.open("r", encoding="utf-8") as f:
+        payload = json.load(f)
+    manifest_payload = payload.get("models") if isinstance(payload, dict) and "models" in payload else payload
+    if not isinstance(manifest_payload, dict):
+        raise RuntimeError("model_manifest.json phải là object hoặc có khóa 'models'.")
+    return {str(k): v for k, v in manifest_payload.items() if isinstance(v, dict)}
 
 
 def resolve_preprocessing_name(model_path: Path, manifest_entry: dict[str, Any]) -> str:
     configured = str(manifest_entry.get("preprocessing", "")).strip().lower()
     if configured:
         return configured
-
     stem = model_path.stem.lower()
-    if "efficientnet" in stem:
-        return "efficientnet"
-    if "resnet" in stem:
-        return "resnet50"
-    if "densenet" in stem:
-        return "densenet"
-    if "xception" in stem:
-        return "xception"
-    if "inception" in stem:
-        return "inception_v3"
-    if "mobilenet" in stem:
-        return "mobilenet_v2"
-    if "best9" in stem or "best (9)" in stem:
-        return "yolo_detect"
-    if model_path.suffix == ".pt" or "yolo" in stem:
-        return "yolo_classify"
+    if "efficientnet" in stem:   return "efficientnet"
+    if "resnet"       in stem:   return "resnet50"
+    if "densenet"     in stem:   return "densenet"
+    if "xception"     in stem:   return "xception"
+    if "inception"    in stem:   return "inception_v3"
+    if "mobilenet"    in stem:   return "mobilenet_v2"
+    if "best9" in stem or "best (9)" in stem: return "yolo_detect"
+    if "yolo" in stem:           return "yolo_detect"
     return DEFAULT_MODEL_PREPROCESSING
 
 
@@ -243,38 +168,34 @@ def load_class_names_from_dataset(num_classes: int) -> list[str] | None:
     for dataset_dir in DATASET_CLASSES_DIR_CANDIDATES:
         if not dataset_dir.exists():
             continue
-
         if dataset_dir == PROJECT_ROOT:
             class_dirs = sorted(
-                path.name
-                for path in dataset_dir.iterdir()
-                if path.is_dir() and path.name not in IGNORED_ROOT_DIRS
+                p.name for p in dataset_dir.iterdir()
+                if p.is_dir() and p.name not in IGNORED_ROOT_DIRS
             )
         else:
-            class_dirs = sorted(path.name for path in dataset_dir.iterdir() if path.is_dir())
-
+            class_dirs = sorted(p.name for p in dataset_dir.iterdir() if p.is_dir())
         if len(class_dirs) == num_classes:
             return class_dirs
     return None
 
 
 def load_class_names(num_classes: int) -> list[str]:
-    dataset_class_names = load_class_names_from_dataset(num_classes)
-    if dataset_class_names is not None:
-        return dataset_class_names
-
+    from_dataset = load_class_names_from_dataset(num_classes)
+    if from_dataset is not None:
+        return from_dataset
     if CLASS_NAMES_PATH.exists():
-        with CLASS_NAMES_PATH.open("r", encoding="utf-8") as file:
-            values = json.load(file)
+        with CLASS_NAMES_PATH.open("r", encoding="utf-8") as f:
+            values = json.load(f)
         if isinstance(values, list) and len(values) == num_classes:
-            return [str(item) for item in values]
-    return [f"class_{index}" for index in range(num_classes)]
+            return [str(v) for v in values]
+    return [f"class_{i}" for i in range(num_classes)]
 
 
 def save_default_class_names(values: list[str]) -> None:
-    with CLASS_NAMES_PATH.open("w", encoding="utf-8") as file:
-        json.dump(values, file, ensure_ascii=False, indent=2)
-        file.write("\n")
+    with CLASS_NAMES_PATH.open("w", encoding="utf-8") as f:
+        json.dump(values, f, ensure_ascii=False, indent=2)
+        f.write("\n")
 
 
 def is_placeholder_label(label: str, index: int) -> bool:
@@ -283,7 +204,7 @@ def is_placeholder_label(label: str, index: int) -> bool:
 
 
 def labels_are_configured(values: list[str]) -> bool:
-    return any(not is_placeholder_label(label, index) for index, label in enumerate(values))
+    return any(not is_placeholder_label(label, i) for i, label in enumerate(values))
 
 
 def display_label_for_index(index: int, labels: list[str]) -> str:
@@ -295,17 +216,84 @@ def display_label_for_index(index: int, labels: list[str]) -> str:
 
 def serialize_classifier_info(classifier: LoadedClassifier) -> dict[str, Any]:
     return {
-        "model_id": classifier.model_id,
-        "display_name": classifier.display_name,
-        "model_path": classifier.source_path.name,
+        "model_id":         classifier.model_id,
+        "display_name":     classifier.display_name,
+        "model_path":       classifier.source_path.name,
         "loaded_model_path": classifier.loaded_path.name,
-        "input_shape": classifier.input_shape,
-        "num_classes": classifier.num_classes,
-        "preprocessing": classifier.preprocessing,
-        "unified": classifier.unified,
+        "input_shape":      classifier.input_shape,
+        "num_classes":      classifier.num_classes,
+        "preprocessing":    classifier.preprocessing,
+        "unified":          classifier.unified,
     }
 
 
+# ── Load single model from .onnx ────────────────────────────────────────────
+def _load_onnx_classifier(model_path: Path, manifest_entry: dict[str, Any]) -> LoadedClassifier:
+    """
+    Load một .onnx model và trả về LoadedClassifier.
+    Đọc input/output shape trực tiếp từ ONNX graph.
+    """
+    adapter = OnnxClassifierAdapter(model_path)
+    sess = adapter._load()
+
+    inp = sess.get_inputs()[0]
+    out = sess.get_outputs()[0]
+
+    # Lấy shape từ ONNX graph (có thể có dim dynamic = None/string)
+    raw_in_shape = inp.shape    # e.g. [1, 224, 224, 3] hoặc ['batch', 224, 224, 3]
+    raw_out_shape = out.shape   # e.g. [1, 14]
+
+    # Manifest override takes priority, fall back to ONNX graph shape
+    configured_shape = manifest_entry.get("input_shape")
+    if configured_shape and len(configured_shape) >= 2:
+        input_height = int(configured_shape[0])
+        input_width  = int(configured_shape[1])
+    else:
+        # NHWC: [batch, H, W, C] — index 1,2
+        try:
+            input_height = int(raw_in_shape[1]) if not isinstance(raw_in_shape[1], str) else 224
+            input_width  = int(raw_in_shape[2]) if not isinstance(raw_in_shape[2], str) else 224
+        except (IndexError, ValueError):
+            input_height, input_width = 224, 224
+
+    configured_classes = manifest_entry.get("num_classes")
+    if configured_classes:
+        num_classes = int(configured_classes)
+    else:
+        try:
+            num_classes = int(raw_out_shape[-1]) if not isinstance(raw_out_shape[-1], str) else 14
+        except (IndexError, ValueError):
+            num_classes = 14
+
+    class_names = load_class_names(num_classes)
+
+    base_id = slugify_model_id(str(manifest_entry.get("model_id") or model_path.stem))
+    is_unified = False
+    if model_path.stem in ("best9", "best_9"):
+        base_id = "best9"
+        is_unified = True
+        input_height, input_width = 640, 640
+
+    display_name = str(manifest_entry.get("display_name") or model_path.stem.replace("_", " "))
+    if base_id == "best9":
+        display_name = "Best9 YOLO (unified)"
+
+    return LoadedClassifier(
+        model_id=base_id,
+        display_name=display_name,
+        source_path=model_path,
+        loaded_path=model_path,   # no sanitized copy needed for ONNX
+        model=adapter,
+        input_height=input_height,
+        input_width=input_width,
+        num_classes=num_classes,
+        class_names=class_names,
+        preprocessing=resolve_preprocessing_name(model_path, manifest_entry),
+        unified=is_unified,
+    )
+
+
+# ── Registry init ────────────────────────────────────────────────────────────
 def initialize_classifier_registry() -> tuple[dict[str, LoadedClassifier], str]:
     global _CLASSIFIER_REGISTRY, _DEFAULT_MODEL_ID
 
@@ -318,69 +306,35 @@ def initialize_classifier_registry() -> tuple[dict[str, LoadedClassifier], str]:
 
     for model_path in discover_model_paths():
         manifest_entry = manifest.get(model_path.name, {})
-        compatible_path = ensure_compatible_model(model_path)
-        if model_path.suffix == ".pt":
-            configured_shape = manifest_entry.get("input_shape") or [224, 224, 3]
-            input_height = int(configured_shape[0])
-            input_width = int(configured_shape[1])
-            num_classes = int(manifest_entry.get("num_classes") or 14)
-            loaded_model = YoloClassificationAdapter(compatible_path)
-        elif model_path.suffix == ".onnx":
-            configured_shape = manifest_entry.get("input_shape") or [640, 640, 3]
-            input_height = int(configured_shape[0])
-            input_width = int(configured_shape[1])
-            num_classes = int(manifest_entry.get("num_classes") or 14)
-            loaded_model = None  # Best9ONNXService is loaded lazily or handled elsewhere
-        else:
-            import tensorflow as _tf
-            # Suppress "compiled metrics have yet to be built" warning
-            _tf.get_logger().setLevel("ERROR")
-            loaded_model = _tf.keras.models.load_model(compatible_path)
-            input_height = int(loaded_model.input_shape[1])
-            input_width = int(loaded_model.input_shape[2])
-            num_classes = int(loaded_model.output_shape[-1])
-        class_names = load_class_names(num_classes)
+        try:
+            classifier = _load_onnx_classifier(model_path, manifest_entry)
+        except Exception as exc:
+            import logging
+            logging.getLogger(__name__).warning(
+                "Bỏ qua model %s: %s", model_path.name, exc
+            )
+            continue
 
-        base_id = slugify_model_id(str(manifest_entry.get("model_id") or model_path.stem))
-        # Force "best9" ID for the unified model to match routing logic
-        if model_path.name == "best (9).pt" or model_path.stem == "best9":
-            base_id = "best9"
-            is_unified = True
-            input_height = 640
-            input_width = 640
-        else:
-            is_unified = False
-
-        candidate_id = base_id
+        candidate_id = classifier.model_id
         suffix = 2
         while candidate_id in used_ids:
-            candidate_id = f"{base_id}_{suffix}"
+            candidate_id = f"{classifier.model_id}_{suffix}"
             suffix += 1
         used_ids.add(candidate_id)
-
-        display_name = str(manifest_entry.get("display_name") or model_path.stem.replace("_", " "))
-        if candidate_id == "best9":
-            display_name = "Best9 YOLO (unified)"
-
-        registry[candidate_id] = LoadedClassifier(
-            model_id=candidate_id,
-            display_name=display_name,
-            source_path=model_path,
-            loaded_path=compatible_path,
-            model=loaded_model,
-            input_height=input_height,
-            input_width=input_width,
-            num_classes=num_classes,
-            class_names=class_names,
-            preprocessing=resolve_preprocessing_name(model_path, manifest_entry),
-            unified=is_unified,
-        )
+        classifier.model_id = candidate_id
+        registry[candidate_id] = classifier
 
     if not registry:
-        raise RuntimeError("Không thể nạp bất kỳ model classifier nào.")
+        raise RuntimeError(
+            "Không thể nạp bất kỳ model nào. "
+            "Kiểm tra thư mục models/ có chứa file .onnx không."
+        )
 
     _CLASSIFIER_REGISTRY = registry
-    _DEFAULT_MODEL_ID = "mobilenetv2_phase2_best" if "mobilenetv2_phase2_best" in registry else next(iter(registry))
+    _DEFAULT_MODEL_ID = (
+        "mobilenetv2_phase2_best" if "mobilenetv2_phase2_best" in registry
+        else next(iter(registry))
+    )
     return _CLASSIFIER_REGISTRY, _DEFAULT_MODEL_ID
 
 
@@ -413,20 +367,15 @@ def get_default_classifier() -> LoadedClassifier:
 
 
 def get_classifier(model_id: str | None) -> LoadedClassifier:
-    """Get a classifier by model_id, loading ONLY the requested model.
-    
-    CRITICAL: This function must NOT call initialize_classifier_registry() which
-    loads ALL TensorFlow models at once (~200-400MB each), causing OOM on Render
-    Free Tier (512MB RAM). Instead, we load only the requested model on demand.
-    
-    If the registry is already initialized (from a previous request), we use it.
-    Otherwise, we load just the requested model.
+    """
+    Lấy classifier theo model_id. Lazy-load từng model khi được yêu cầu lần đầu.
+    Không load tất cả models cùng lúc để tránh OOM trên Render Free (512MB).
     """
     global _CLASSIFIER_REGISTRY, _DEFAULT_MODEL_ID
-    
+
     selected_id = str(model_id or "").strip()
-    
-    # If registry is already initialized, use it
+
+    # Registry đã khởi tạo → dùng luôn
     if _CLASSIFIER_REGISTRY is not None:
         if not selected_id:
             selected_id = _DEFAULT_MODEL_ID or next(iter(_CLASSIFIER_REGISTRY))
@@ -434,162 +383,113 @@ def get_classifier(model_id: str | None) -> LoadedClassifier:
         if classifier is None:
             raise HTTPException(status_code=404, detail=f"Không tìm thấy model_id '{selected_id}'.")
         return classifier
-    
-    # Registry not initialized - load ONLY the requested model
+
+    # Chưa khởi tạo — load chỉ model được yêu cầu
     if not selected_id:
-        # No specific model requested, load the first available one
         registry, default_id = initialize_classifier_registry()
         return registry[default_id]
-    
-    # Load just the requested model
+
     manifest = load_model_manifest()
     model_paths = discover_model_paths()
-    
-    # Find the matching model path
-    target_path = None
+
+    target_path: Path | None = None
     for mp in model_paths:
         base_id = slugify_model_id(str(manifest.get(mp.name, {}).get("model_id") or mp.stem))
-        if mp.name == "best (9).pt" or mp.stem == "best9":
+        if mp.stem in ("best9", "best_9"):
             base_id = "best9"
         if base_id == selected_id:
             target_path = mp
             break
-    
+
     if target_path is None:
         raise HTTPException(status_code=404, detail=f"Không tìm thấy model_id '{selected_id}'.")
-    
+
     manifest_entry = manifest.get(target_path.name, {})
-    compatible_path = ensure_compatible_model(target_path)
-    
-    if target_path.suffix == ".pt":
-        configured_shape = manifest_entry.get("input_shape") or [224, 224, 3]
-        input_height = int(configured_shape[0])
-        input_width = int(configured_shape[1])
-        num_classes = int(manifest_entry.get("num_classes") or 14)
-        loaded_model = YoloClassificationAdapter(compatible_path)
-    elif target_path.suffix == ".onnx":
-        configured_shape = manifest_entry.get("input_shape") or [640, 640, 3]
-        input_height = int(configured_shape[0])
-        input_width = int(configured_shape[1])
-        num_classes = int(manifest_entry.get("num_classes") or 14)
-        loaded_model = None  # Best9ONNXService is loaded lazily or handled elsewhere
-    else:
-        import tensorflow as _tf
-        _tf.get_logger().setLevel("ERROR")
-        loaded_model = _tf.keras.models.load_model(compatible_path)
-        input_height = int(loaded_model.input_shape[1])
-        input_width = int(loaded_model.input_shape[2])
-        num_classes = int(loaded_model.output_shape[-1])
-    
-    class_names = load_class_names(num_classes)
-    
-    base_id = slugify_model_id(str(manifest_entry.get("model_id") or target_path.stem))
-    is_unified = False
-    if target_path.name == "best (9).pt" or target_path.stem == "best9":
-        base_id = "best9"
-        is_unified = True
-        input_height = 640
-        input_width = 640
-    
-    display_name = str(manifest_entry.get("display_name") or target_path.stem.replace("_", " "))
-    if base_id == "best9":
-        display_name = "Best9 YOLO (unified)"
-    
-    classifier = LoadedClassifier(
-        model_id=base_id,
-        display_name=display_name,
-        source_path=target_path,
-        loaded_path=compatible_path,
-        model=loaded_model,
-        input_height=input_height,
-        input_width=input_width,
-        num_classes=num_classes,
-        class_names=class_names,
-        preprocessing=resolve_preprocessing_name(target_path, manifest_entry),
-        unified=is_unified,
-    )
-    
-    # Initialize registry with just this model
-    _CLASSIFIER_REGISTRY = {base_id: classifier}
-    _DEFAULT_MODEL_ID = base_id
-    
+    classifier = _load_onnx_classifier(target_path, manifest_entry)
+
+    _CLASSIFIER_REGISTRY = {classifier.model_id: classifier}
+    _DEFAULT_MODEL_ID = classifier.model_id
     return classifier
 
 
 def parse_model_ids_json(model_ids_json: str | None) -> list[str]:
     if not model_ids_json:
         return []
-
     try:
         payload = json.loads(model_ids_json)
     except json.JSONDecodeError as exc:
         raise HTTPException(status_code=400, detail="model_ids_json phải là JSON array hợp lệ.") from exc
-
     if not isinstance(payload, list):
         raise HTTPException(status_code=400, detail="model_ids_json phải là JSON array.")
-
-    values: list[str] = []
-    for item in payload:
-        text = str(item).strip()
-        if text and text not in values:
-            values.append(text)
-    return values
+    return [str(item).strip() for item in payload if str(item).strip()]
 
 
 def get_comparison_classifiers(model_ids_json: str | None) -> list[LoadedClassifier]:
     requested_ids = parse_model_ids_json(model_ids_json)
     if not requested_ids:
         return list(get_classifier_registry().values())
-    return [get_classifier(model_id) for model_id in requested_ids]
+    return [get_classifier(mid) for mid in requested_ids]
 
 
 def get_default_runtime_info() -> dict[str, Any]:
     classifier = get_default_classifier()
     return {
-        "default_model_id": classifier.model_id,
+        "default_model_id":   classifier.model_id,
         "default_model_name": classifier.display_name,
-        "model_path": classifier.source_path.name,
-        "loaded_model_path": classifier.loaded_path.name,
-        "input_shape": classifier.input_shape,
-        "num_classes": classifier.num_classes,
-        "preprocessing": classifier.preprocessing,
+        "model_path":         classifier.source_path.name,
+        "loaded_model_path":  classifier.loaded_path.name,
+        "input_shape":        classifier.input_shape,
+        "num_classes":        classifier.num_classes,
+        "preprocessing":      classifier.preprocessing,
     }
 
 
-def image_to_array(image: Image.Image, *, classifier: LoadedClassifier) -> np.ndarray:
-    resized = image.resize((classifier.input_width, classifier.input_height), RESAMPLING.BILINEAR)
-    return np.asarray(resized, dtype=np.float32)
-
-
+# ── Image preprocessing (NumPy-only, no TensorFlow) ─────────────────────────
 def apply_model_preprocessing(batch: np.ndarray, preprocessing_name: str) -> np.ndarray:
-    normalized_name = str(preprocessing_name or DEFAULT_MODEL_PREPROCESSING).strip().lower()
-    if normalized_name == "mobilenet_v2":
-        import tensorflow as _tf
-        return _tf.keras.applications.mobilenet_v2.preprocess_input(batch)
-    if normalized_name == "efficientnet":
-        import tensorflow as _tf
-        return _tf.keras.applications.efficientnet.preprocess_input(batch)
-    if normalized_name == "resnet50":
-        import tensorflow as _tf
-        return _tf.keras.applications.resnet50.preprocess_input(batch)
-    if normalized_name == "densenet":
-        import tensorflow as _tf
-        return _tf.keras.applications.densenet.preprocess_input(batch)
-    if normalized_name == "xception":
-        import tensorflow as _tf
-        return _tf.keras.applications.xception.preprocess_input(batch)
-    if normalized_name == "inception_v3":
-        import tensorflow as _tf
-        return _tf.keras.applications.inception_v3.preprocess_input(batch)
-    if normalized_name in {"zero_one", "0_1"}:
+    """
+    Tái tạo TF Keras preprocessing bằng NumPy thuần — không cần tensorflow.
+
+    Tất cả formulas được lấy từ Keras source (keras/applications/<name>.py).
+    """
+    name = str(preprocessing_name or DEFAULT_MODEL_PREPROCESSING).strip().lower()
+
+    if name == "mobilenet_v2":
+        # tf.keras.applications.mobilenet_v2.preprocess_input:
+        # x / 127.5 - 1.0  → range [-1, 1]
+        return (np.asarray(batch, dtype=np.float32) / 127.5) - 1.0
+
+    if name in ("resnet50", "resnet"):
+        # tf.keras.applications.resnet50.preprocess_input:
+        # BGR mean subtract (ImageNet), input assumed RGB
+        b = np.asarray(batch, dtype=np.float32)[..., ::-1]   # RGB → BGR
+        mean = np.array([103.939, 116.779, 123.68], dtype=np.float32)
+        return b - mean
+
+    if name == "densenet":
+        # tf.keras.applications.densenet.preprocess_input:
+        # x / 127.5 - 1.0 (same as mobilenet_v2)
+        return (np.asarray(batch, dtype=np.float32) / 127.5) - 1.0
+
+    if name == "efficientnet":
+        # tf.keras.applications.efficientnet.preprocess_input:
+        # No-op (returns input as-is, expects [0,255])
+        return np.asarray(batch, dtype=np.float32)
+
+    if name in ("xception", "inception_v3"):
+        # tf.keras.applications.xception.preprocess_input:
+        # x / 127.5 - 1.0 → range [-1, 1]
+        return (np.asarray(batch, dtype=np.float32) / 127.5) - 1.0
+
+    if name in ("zero_one", "0_1"):
         return np.asarray(batch, dtype=np.float32) / 255.0
-    if normalized_name == "yolo_classify":
+
+    if name in ("yolo_classify", "yolo_detect", "none"):
         return np.asarray(batch, dtype=np.float32)
-    if normalized_name == "none":
-        return np.asarray(batch, dtype=np.float32)
+
     raise RuntimeError(f"Preprocessing '{preprocessing_name}' chưa được hỗ trợ.")
 
 
+# ── Image I/O ────────────────────────────────────────────────────────────────
 def read_image_from_bytes(raw_bytes: bytes) -> Image.Image:
     try:
         with Image.open(io.BytesIO(raw_bytes)) as image:
@@ -598,19 +498,25 @@ def read_image_from_bytes(raw_bytes: bytes) -> Image.Image:
         raise HTTPException(status_code=400, detail="Tệp ảnh không hợp lệ.") from exc
 
 
+def image_to_array(image: Image.Image, *, classifier: LoadedClassifier) -> np.ndarray:
+    resized = image.resize((classifier.input_width, classifier.input_height), RESAMPLING.BILINEAR)
+    return np.asarray(resized, dtype=np.float32)
+
+
 def preprocess_image(raw_bytes: bytes, classifier: LoadedClassifier) -> np.ndarray:
     image = read_image_from_bytes(raw_bytes)
     batch = np.expand_dims(image_to_array(image, classifier=classifier), axis=0)
     return apply_model_preprocessing(batch, classifier.preprocessing)
 
 
+# ── Prediction helpers ────────────────────────────────────────────────────────
 def vector_to_prediction_items(vector: np.ndarray, labels: list[str]) -> list[dict[str, Any]]:
     ranked_indices = np.argsort(vector)[::-1]
     return [
         {
-            "index": int(index),
-            "label": display_label_for_index(int(index), labels),
-            "raw_label": labels[int(index)],
+            "index":      int(index),
+            "label":      display_label_for_index(int(index), labels),
+            "raw_label":  labels[int(index)],
             "confidence": float(vector[int(index)]),
         }
         for index in ranked_indices
@@ -620,12 +526,14 @@ def vector_to_prediction_items(vector: np.ndarray, labels: list[str]) -> list[di
 def update_classifier_labels(model_id: str, values: list[str]) -> LoadedClassifier:
     classifier = get_classifier(model_id)
     if len(values) != classifier.num_classes:
-        raise HTTPException(status_code=400, detail=f"Cần đúng {classifier.num_classes} tên lớp.")
-    if any(not str(value).strip() for value in values):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cần đúng {classifier.num_classes} tên lớp.",
+        )
+    if any(not str(v).strip() for v in values):
         raise HTTPException(status_code=400, detail="Tên lớp không được để trống.")
-
-    cleaned_values = [str(value).strip() for value in values]
-    classifier.class_names = cleaned_values
+    cleaned = [str(v).strip() for v in values]
+    classifier.class_names = cleaned
     if classifier.model_id == get_default_model_id():
-        save_default_class_names(cleaned_values)
+        save_default_class_names(cleaned)
     return classifier
