@@ -18,20 +18,76 @@
         "stability_score": 87
       },
       "per_class": {
-        "BA":  { "precision": 93, "recall": 94, "f1": 93 },
-        "BNE": { "precision": 67, "recall": 92, "f1": 78 },
-        "EO":  { "precision": 99, "recall": 98, "f1": 99 },
-        "ERB": { "precision": 88, "recall": 65, "f1": 75 },
-        "IG":  { "precision": 64, "recall": 100, "f1": 78 },
-        "LY":  { "precision": 95, "recall": 62, "f1": 75 },
-        "MMY": { "precision": 83, "recall": 55, "f1": 66 },
-        "MO":  { "precision": 56, "recall": 78, "f1": 65 },
-        "MY":  { "precision": 74, "recall": 46, "f1": 57 },
-        "MYO": { "precision": 100, "recall": 91, "f1": 95 },
-        "PLT": { "precision": 95, "recall": 96, "f1": 96 },
-        "PMY": { "precision": 60, "recall": 71, "f1": 65 },
-        "RBC": { "precision": 99, "recall": 100, "f1": 99 },
-        "SNE": { "precision": 91, "recall": 66, "f1": 76 }
+        "BA": {
+          "precision": 93,
+          "recall": 94,
+          "f1": 93
+        },
+        "BNE": {
+          "precision": 67,
+          "recall": 92,
+          "f1": 78
+        },
+        "EO": {
+          "precision": 99,
+          "recall": 98,
+          "f1": 99
+        },
+        "ERB": {
+          "precision": 88,
+          "recall": 65,
+          "f1": 75
+        },
+        "IG": {
+          "precision": 64,
+          "recall": 100,
+          "f1": 78
+        },
+        "LY": {
+          "precision": 95,
+          "recall": 62,
+          "f1": 75
+        },
+        "MMY": {
+          "precision": 83,
+          "recall": 55,
+          "f1": 66
+        },
+        "MO": {
+          "precision": 56,
+          "recall": 78,
+          "f1": 65
+        },
+        "MY": {
+          "precision": 74,
+          "recall": 46,
+          "f1": 57
+        },
+        "MYO": {
+          "precision": 100,
+          "recall": 91,
+          "f1": 95
+        },
+        "PLT": {
+          "precision": 95,
+          "recall": 96,
+          "f1": 96
+        },
+        "PMY": {
+          "precision": 60,
+          "recall": 71,
+          "f1": 65
+        },
+        "RBC": {
+          "precision": 99,
+          "recall": 100,
+          "f1": 99
+        },
+        "SNE": {
+          "precision": 91,
+          "recall": 66,
+          "f1": 76
+        }
       }
     },
     "mobilenetv2_final_finetuned": {
@@ -69,6 +125,25 @@
         "weighted_f1": 86,
         "inference_speed_score": 68,
         "stability_score": 82
+      },
+      "per_class": {}
+    },
+    "best9": {
+      "display_name": "Best9 YOLO (unified)",
+      "source": "yolov8_training",
+      "note": "Unified YOLOv8 model for detection and classification",
+      "metrics": {
+        "accuracy": 95.2,
+        "tuned_accuracy": 97.5,
+        "val_accuracy": 94.8,
+        "macro_precision": 92,
+        "macro_recall": 91,
+        "macro_f1": 91,
+        "weighted_precision": 96,
+        "weighted_recall": 95,
+        "weighted_f1": 95,
+        "inference_speed_score": 98,
+        "stability_score": 92
       },
       "per_class": {}
     }

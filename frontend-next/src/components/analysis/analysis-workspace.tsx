@@ -140,30 +140,32 @@ function recomputeCounts(
 }
 
 const OPTIMAL_PARAMS: Record<string, Partial<AnalysisFormValues>> = {
-  best9: {
-    confidence_threshold: 0.20,
-    max_detections: 300,
-    padding_ratio: 0.10,
-    min_component_area: 120,
-  },
+  // MobileNet (model tự train, 2 bước: detect rồi crop + classify)
+  // Cần confidence cao hơn để lọc FP, padding lớn hơn để crop đủ ngữ cảnh
   mobilenetv2_phase2_best: {
-    confidence_threshold: 0.20,
-    max_detections: 300,
+    confidence_threshold: 0.25,
+    max_detections: 128,
     padding_ratio: 0.10,
     min_component_area: 120,
   },
   mobilenetv2_final_finetuned: {
+    confidence_threshold: 0.30,
+    max_detections: 150,
+    padding_ratio: 0.12,
+    min_component_area: 100,
+  },
+  best9: {
     confidence_threshold: 0.20,
     max_detections: 300,
+    padding_ratio: 0.05,
+    min_component_area: 80,
+  },
+  best_model_v2: {
+    confidence_threshold: 0.25,
+    max_detections: 128,
     padding_ratio: 0.10,
     min_component_area: 120,
   },
-  best_model_v2: {
-    confidence_threshold: 0.20,
-    max_detections: 300,
-    padding_ratio: 0.10,
-    min_component_area: 120,
-  }
 };
 
 function getRowsForTab(result: AnalyzeResponse, tab: ResultTabKey): CountRow[] {
@@ -594,7 +596,7 @@ export function AnalysisWorkspace() {
   const isDark = theme === "dark";
 
   return (
-    <div className="bg-[linear-gradient(180deg,rgba(248,250,252,0.4),rgba(241,245,249,0.95)_34%,#f1f5f9_100%)] dark:bg-[linear-gradient(180deg,rgba(0,0,0,0.2),rgba(0,0,0,0.95)_34%,#000000_100%)] transition-colors duration-500">
+    <div className="bg-[linear-gradient(180deg,rgba(241,245,249,0)_0%,#f1f5f9_100%)] dark:bg-[linear-gradient(180deg,rgba(0,0,0,0.2),rgba(0,0,0,0.95)_34%,#000000_100%)] transition-colors duration-500">
       <section className="relative min-h-screen overflow-hidden border-b border-black/8 dark:border-white/8 transition-colors duration-500">
         <Image
           src={isDark ? "/images/hero-doctor-lab.png" : "/images/hero-doctor-lab-light.png"}
@@ -605,7 +607,7 @@ export function AnalysisWorkspace() {
           className={`object-cover transition-opacity duration-500 ${isDark ? "object-right-top" : "object-[right_28%]"
             }`}
         />
-        <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(255,255,255,0.1),transparent_40%),linear-gradient(180deg,transparent_60%,rgba(241,245,249,0.8)_90%,#f1f5f9)] dark:bg-[linear-gradient(90deg,rgba(0,0,0,0.92),rgba(0,0,0,0.6)_46%,rgba(0,0,0,0.1)),linear-gradient(180deg,transparent_60%,rgba(0,0,0,0.8)_90%,#000000)] transition-colors duration-500 pointer-events-none" />
+        <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(255,255,255,0.75)_0%,rgba(255,255,255,0.4)_38%,transparent_65%),linear-gradient(180deg,transparent_70%,rgba(241,245,249,0.95)_95%,#f1f5f9)] dark:bg-[linear-gradient(90deg,rgba(0,0,0,0.92),rgba(0,0,0,0.6)_46%,rgba(0,0,0,0.1)),linear-gradient(180deg,transparent_60%,rgba(0,0,0,0.8)_90%,#000000)] transition-colors duration-500 pointer-events-none" />
 
         <div className="relative flex min-h-screen items-center px-6 py-20 sm:px-10 lg:px-14">
           <div className="max-w-2xl">
@@ -855,7 +857,10 @@ export function AnalysisWorkspace() {
             </div>
 
             {/* Real-time progress bar */}
-            <AnalysisProgressBar isPending={analyzeMutation.isPending} />
+            <AnalysisProgressBar 
+              isPending={analyzeMutation.isPending} 
+              isUnified={availableModels.find((m) => m.model_id === selectedModel)?.unified ?? false}
+            />
             {!selectedFile ? (
               <p className="mt-3 text-center text-xs font-medium text-slate-500 dark:text-slate-400">
                 Chọn ảnh để bật các nút phân tích.

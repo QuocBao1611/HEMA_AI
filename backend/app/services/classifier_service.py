@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import h5py  # noqa: F401 — kept for backward compat check, can be removed after migration
+
 import numpy as np
 import onnxruntime as ort
 from fastapi import HTTPException
@@ -375,27 +375,28 @@ def get_default_classifier() -> LoadedClassifier:
 
 def get_classifier(model_id: str | None) -> LoadedClassifier:
     """
-    Lấy classifier theo model_id. Lazy-load từng model khi được yêu cầu lần đầu.
-    Không load tất cả models cùng lúc để tránh OOM trên Render Free (512MB).
+    Lấy classifier theo model_id. Lazy-load từng model khi được yêu cầu.
+    Không load tất cả models cùng lúc lúc khởi động để tránh OOM trên Render Free (512MB).
+    Tuy nhiên, nếu người dùng request compare nhiều models, chúng sẽ được nạp dần vào bộ nhớ.
     """
     global _CLASSIFIER_REGISTRY, _DEFAULT_MODEL_ID
 
     selected_id = str(model_id or "").strip()
 
-    # Registry đã khởi tạo → dùng luôn
-    if _CLASSIFIER_REGISTRY is not None:
-        if not selected_id:
-            selected_id = _DEFAULT_MODEL_ID or next(iter(_CLASSIFIER_REGISTRY))
-        classifier = _CLASSIFIER_REGISTRY.get(selected_id)
-        if classifier is None:
-            raise HTTPException(status_code=404, detail=f"Không tìm thấy model_id '{selected_id}'.")
-        return classifier
+    if _CLASSIFIER_REGISTRY is None:
+        _CLASSIFIER_REGISTRY = {}
 
-    # Chưa khởi tạo — load chỉ model được yêu cầu
     if not selected_id:
-        registry, default_id = initialize_classifier_registry()
-        return registry[default_id]
+        if not _CLASSIFIER_REGISTRY:
+            # Load default model if registry is empty and no ID provided
+            registry, default_id = initialize_classifier_registry()
+            return registry[default_id]
+        selected_id = _DEFAULT_MODEL_ID or next(iter(_CLASSIFIER_REGISTRY))
 
+    if selected_id in _CLASSIFIER_REGISTRY:
+        return _CLASSIFIER_REGISTRY[selected_id]
+
+    # Model chưa có trong registry -> load nó
     manifest = load_model_manifest()
     model_paths = discover_model_paths()
 
@@ -414,8 +415,10 @@ def get_classifier(model_id: str | None) -> LoadedClassifier:
     manifest_entry = manifest.get(target_path.name, {})
     classifier = _load_onnx_classifier(target_path, manifest_entry)
 
-    _CLASSIFIER_REGISTRY = {classifier.model_id: classifier}
-    _DEFAULT_MODEL_ID = classifier.model_id
+    _CLASSIFIER_REGISTRY[classifier.model_id] = classifier
+    if not _DEFAULT_MODEL_ID:
+        _DEFAULT_MODEL_ID = classifier.model_id
+        
     return classifier
 
 

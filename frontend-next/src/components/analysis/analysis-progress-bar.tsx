@@ -13,7 +13,7 @@ type Stage = {
   increment: number; // progress added per tick
 };
 
-const STAGES: Stage[] = [
+const DEFAULT_STAGES: Stage[] = [
   {
     label: "Đang phát hiện tế bào...",
     hint: "YOLO đang quét toàn bộ slide",
@@ -43,11 +43,33 @@ const STAGES: Stage[] = [
   },
 ];
 
+const UNIFIED_STAGES: Stage[] = [
+  {
+    label: "Đang phân tích tế bào...",
+    hint: "YOLO đang quét và phân loại đồng thời",
+    Icon: Microscope,
+    color: "from-violet-500 to-purple-500",
+    target: 65,
+    tickMs: 40,
+    increment: 0.55,
+  },
+  {
+    label: "Hoàn thiện kết quả...",
+    hint: "Tổng hợp WBC differential và cảnh báo",
+    Icon: BarChart3,
+    color: "from-amber-500 to-orange-500",
+    target: 93,
+    tickMs: 90,
+    increment: 0.28,
+  },
+];
+
 type Props = {
   isPending: boolean;
+  isUnified?: boolean;
 };
 
-export function AnalysisProgressBar({ isPending }: Props) {
+export function AnalysisProgressBar({ isPending, isUnified = false }: Props) {
   const [visible, setVisible] = useState(false);
   const [done, setDone] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -56,6 +78,8 @@ export function AnalysisProgressBar({ isPending }: Props) {
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const progressRef = useRef(0);
   const stageIdxRef = useRef(0);
+
+  const activeStages = isUnified ? UNIFIED_STAGES : DEFAULT_STAGES;
 
   const clearTick = () => {
     if (intervalRef.current) {
@@ -66,7 +90,7 @@ export function AnalysisProgressBar({ isPending }: Props) {
 
   const startTick = (sIdx: number) => {
     clearTick();
-    const stage = STAGES[sIdx];
+    const stage = activeStages[sIdx];
     if (!stage) return;
 
     intervalRef.current = setInterval(() => {
@@ -80,7 +104,7 @@ export function AnalysisProgressBar({ isPending }: Props) {
       if (progressRef.current >= stage.target) {
         clearTick();
         const next = sIdx + 1;
-        if (next < STAGES.length) {
+        if (next < activeStages.length) {
           stageIdxRef.current = next;
           setStageIdx(next);
           startTick(next);
@@ -122,7 +146,7 @@ export function AnalysisProgressBar({ isPending }: Props) {
 
   if (!visible) return null;
 
-  const stage = STAGES[Math.min(stageIdx, STAGES.length - 1)];
+  const stage = activeStages[Math.min(stageIdx, activeStages.length - 1)];
   const StageIcon = done ? CheckCircle2 : stage.Icon;
   const barColor = done
     ? "from-emerald-500 to-green-400"
@@ -193,7 +217,7 @@ export function AnalysisProgressBar({ isPending }: Props) {
         {/* Stage dots */}
         {!done && (
           <div className="mt-3 flex items-center gap-1.5">
-            {STAGES.map((s, i) => (
+            {activeStages.map((s, i) => (
               <div key={s.label} className="flex items-center gap-1.5">
                 <div
                   className={`h-1.5 rounded-full transition-all duration-500 ${
@@ -207,7 +231,7 @@ export function AnalysisProgressBar({ isPending }: Props) {
               </div>
             ))}
             <span className="ml-1 text-[10px] font-medium text-slate-500">
-              Bước {stageIdx + 1}/{STAGES.length}
+              Bước {stageIdx + 1}/{activeStages.length}
             </span>
           </div>
         )}

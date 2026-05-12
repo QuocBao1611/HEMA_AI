@@ -441,6 +441,11 @@ export function ModelComparison() {
     const fallback = { accuracy: 90, weighted_precision: 89, weighted_recall: 89, weighted_f1: 89, inference_speed_score: 85, stability_score: 85 };
 
     const benchmarks = rows.map(r => allBenchmarks[r.model_id]?.metrics || fallback);
+    // Độ tin cậy benchmark: model tự train có dữ liệu thực → 1.0; model ngoài chưa kiểm chứng trên dataset này → 0.9
+    const benchmarkCredibility = rows.map(r => {
+      const src = allBenchmarks[r.model_id]?.source ?? "";
+      return src === "notebook" ? 1.0 : 0.9;
+    });
     const names = rows.map(r => r.display_name);
 
     const radarDatasets = rows.map((row, i) => {
@@ -473,7 +478,7 @@ export function ModelComparison() {
       { label: "Độ ổn định (Stability)", values: benchmarks.map(m => Math.round(m.stability_score || 85)), unit: "%" },
     ];
 
-    return { rows, names, radarDatasets, summaryCards, barMetrics };
+    return { rows, names, radarDatasets, summaryCards, barMetrics, benchmarkCredibility };
   }, [resultData, systemInfo]);
 
   const selectedModelNames = useMemo(() => {
@@ -578,12 +583,18 @@ export function ModelComparison() {
 
       {/* Results */}
       {showResults && mappedResults && (() => {
-        const { rows, names, radarDatasets, summaryCards, barMetrics } = mappedResults;
+        const { rows, names, radarDatasets, summaryCards, barMetrics, benchmarkCredibility } = mappedResults;
         const accuracies = barMetrics.find(m => m.label.includes("Accuracy"))?.values || rows.map(() => 0);
         const bestIdx = rows.reduce((best, row, i) => {
-          if (accuracies[i] > accuracies[best]) return i;
-          if (accuracies[i] === accuracies[best] && row.average_confidence > rows[best].average_confidence) return i;
+          // Điểm số = độ tự tin thực tế × hệ số tin cậy benchmark (1.0 nếu có số liệu thực; 0.9 nếu À1ccúắtính)
+          const scoreOf = (idx: number) => rows[idx].average_confidence * benchmarkCredibility[idx];
+          if (scoreOf(i) > scoreOf(best)) return i;
+          if (scoreOf(i) === scoreOf(best) && accuracies[i] > accuracies[best]) return i;
           return best;
+        }, 0);
+
+        const highestConfIdx = rows.reduce((best, row, i) => {
+          return row.average_confidence > rows[best].average_confidence ? i : best;
         }, 0);
 
         return (
@@ -678,7 +689,7 @@ export function ModelComparison() {
                   }
                 </li>
                 <li>
-                  Model có độ tự tin cao nhất trên ảnh này là <strong>{rows[bestIdx].display_name}</strong> ({formatPercent(rows[bestIdx].average_confidence)}).
+                  Model có độ tự tin cao nhất trên ảnh này là <strong>{rows[highestConfIdx].display_name}</strong> ({formatPercent(rows[highestConfIdx].average_confidence)}).
                 </li>
               </ul>
             </div>
@@ -688,7 +699,7 @@ export function ModelComparison() {
             <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50/50 p-5 text-sm leading-relaxed text-emerald-900 dark:border-emerald-800/50 dark:bg-emerald-900/10 dark:text-emerald-100 animate-in fade-in slide-in-from-top-2">
               <h4 className="mb-2 font-semibold">💡 Khuyến nghị</h4>
               <p className="mb-3 opacity-90">
-                Dựa trên cả số liệu benchmark lịch sử và kết quả thực tế trên bức ảnh này:
+                Dựa trên kết quả phân tích thực tế trên bức ảnh này:
               </p>
               <div className="rounded-lg bg-emerald-100/50 p-3 dark:bg-emerald-800/20 mb-3 border border-emerald-200 dark:border-emerald-800/50">
                 <p className="font-medium">
@@ -696,8 +707,9 @@ export function ModelComparison() {
                 </p>
               </div>
               <ul className="list-inside list-disc space-y-1.5 opacity-90">
-                <li>Ưu tiên model có <strong>Độ chính xác (Accuracy)</strong> cao hơn trên radar chart vì nó đã được huấn luyện tốt hơn để phân biệt các trường hợp gây nhầm lẫn.</li>
-                <li>Nếu các model có Benchmark tương đương, hãy chọn model có <strong>Độ tự tin trung bình</strong> trên ảnh thực tế cao hơn.</li>
+                <li>Hệ thống tính điểm theo công thức: <strong>Điểm số = Độ tự tin thực tế &times; Hệ số tin cậy</strong>.</li>
+                <li><strong>Hệ số tin cậy = 1.0</strong> nếu model có benchmark thực tế (đã tự huấn luyện và đo kiểm). <strong>= 0.9</strong> nếu benchmark là ước tính hoặc chưa kiểm chứng trên dataset này.</li>
+                <li>Nếu điểm số bằng nhau, hệ thống sẽ xem xét thêm <strong>Accuracy</strong> lịch sử để phân định.</li>
                 <li>Đối với các mẫu máu hiếm hoặc bất thường, bạn nên tham khảo ý kiến của bác sĩ huyết học thay vì hoàn toàn phụ thuộc vào một model.</li>
               </ul>
             </div>
