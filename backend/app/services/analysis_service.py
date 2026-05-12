@@ -331,16 +331,17 @@ def summarize_grid_analysis(
         key=lambda item: (-item["count"], -item["average_confidence"], item["label"]),
     )
 
-    all_best_confidences = [item["confidence"] for item in region_predictions]
-    detected_confidences = [item["average_confidence"] for item in estimated_counts for _ in range(item["count"])]
     dominant_cell_type = estimated_counts[0] if estimated_counts else None
+    # average_confidence: tính từ tất cả regions (kể cả dưới threshold)
+    all_confidences = [item["confidence"] for item in region_predictions]
 
     return {
         "analyzed_region_count": len(region_predictions),
         "detected_region_count": detected_region_count,
         "estimated_total_cells": detected_region_count,
-        "average_confidence": float(np.mean(detected_confidences)) if detected_confidences else 0.0,
-        "average_region_confidence": float(np.mean(all_best_confidences)) if all_best_confidences else 0.0,
+        "average_confidence": float(np.mean(all_confidences)) if all_confidences else 0.0,
+        "average_region_confidence": float(np.mean(all_confidences)) if all_confidences else 0.0,
+
         "dominant_cell_type": dominant_cell_type,
         "estimated_counts": estimated_counts,
         "region_predictions": region_predictions,
@@ -678,12 +679,10 @@ def summarize_slide_count(
     wbc_differential = aggregate_prediction_buckets(wbc_buckets, total_wbc_count)
 
     dominant_cell_type = estimated_counts[0] if estimated_counts else None
-    average_confidence = (
-        float(np.mean([item["average_confidence"] for item in estimated_counts for _ in range(item["count"])]))
-        if estimated_counts
-        else 0.0
-    )
-    average_region_confidence = float(np.mean([item["confidence"] for item in cells])) if cells else 0.0
+    # average_confidence: tính từ tất cả cells (kể cả dưới threshold) để phản ánh đúng độ tin cậy tổng thể
+    average_confidence = float(np.mean([item["confidence"] for item in cells])) if cells else 0.0
+    average_region_confidence = average_confidence  # same value, different name for backward compat
+
 
     return {
         "analyzed_region_count": len(cells),
@@ -1044,11 +1043,10 @@ def run_yolo_unified_analysis(
     wbc_differential = aggregate_prediction_buckets(wbc_buckets, total_wbc)
 
     dominant_cell_type = estimated_counts[0] if estimated_counts else None
-    avg_conf = (
-        float(np.mean([it["average_confidence"] for it in estimated_counts for _ in range(it["count"])]))
-        if estimated_counts else 0.0
-    )
-    avg_region_conf = float(np.mean([c["confidence"] for c in cells])) if cells else 0.0
+    # average_confidence: tính từ tất cả cells (kể cả dưới threshold) để phản ánh đúng độ tin cậy tổng thể
+    avg_conf = float(np.mean([c["confidence"] for c in cells])) if cells else 0.0
+    avg_region_conf = avg_conf  # same value, different name for backward compat
+
 
     return {
         "mode": "analyze",
