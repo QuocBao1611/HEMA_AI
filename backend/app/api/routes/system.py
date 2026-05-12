@@ -44,8 +44,9 @@ def _build_lightweight_model_list() -> list:
     
     Models are lazy-loaded on first analysis request only.
     
-    NOTE: Chỉ trả về classifier models (preprocessing != yolo_detect).
-    Detector models (best9, yolov8n) được analysis_service quản lý riêng.
+    NOTE: 
+    - best9.onnx là unified model (vừa detect vừa classify) — giữ lại
+    - yolov8n-bccd.onnx là detector thuần — ẩn đi (analysis_service quản lý)
     """
     from backend.app.services.classifier_service import discover_model_paths, load_model_manifest, slugify_model_id
     manifest = load_model_manifest()
@@ -55,17 +56,31 @@ def _build_lightweight_model_list() -> list:
     for model_path in model_paths:
         manifest_entry = manifest.get(model_path.name, {})
         preprocessing = str(manifest_entry.get("preprocessing", "mobilenet_v2"))
+        base_id = slugify_model_id(str(manifest_entry.get("model_id") or model_path.stem))
         
-        # Bỏ qua detector models — chúng không phải classifier
-        if preprocessing == "yolo_detect":
+        # best9 là unified model — giữ lại
+        if model_path.stem == "best9":
+            base_id = "best9"
+            display_name = "Best9 YOLO (unified)"
+            models.append({
+                "model_id": base_id,
+                "display_name": display_name,
+                "model_path": model_path.name,
+                "loaded_model_path": model_path.name,
+                "source_path": model_path.name,
+                "preprocessing": preprocessing,
+                "num_classes": int(manifest_entry.get("num_classes", 14)),
+                "input_shape": manifest_entry.get("input_shape", [224, 224, 3]),
+                "unified": True,
+            })
+            continue
+        
+        # yolov8n là detector thuần — bỏ qua
+        if "yolov8" in model_path.stem.lower():
             continue
             
-        base_id = slugify_model_id(str(manifest_entry.get("model_id") or model_path.stem))
-        if model_path.name == "best (9).pt" or model_path.stem == "best9":
-            base_id = "best9"
+        # Classifier models thông thường
         display_name = str(manifest_entry.get("display_name") or model_path.stem.replace("_", " "))
-        if base_id == "best9":
-            display_name = "Best9 YOLO (unified)"
         models.append({
             "model_id": base_id,
             "display_name": display_name,
@@ -75,10 +90,11 @@ def _build_lightweight_model_list() -> list:
             "preprocessing": preprocessing,
             "num_classes": int(manifest_entry.get("num_classes", 14)),
             "input_shape": manifest_entry.get("input_shape", [224, 224, 3]),
-            "unified": base_id == "best9",
+            "unified": False,
         })
 
     return models
+
 
 
 
