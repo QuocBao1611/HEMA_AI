@@ -819,59 +819,76 @@ def run_model_comparison(
     image: Image.Image,
     *,
     filename: str | None,
-    classifiers: list[LoadedClassifier],
+    model_ids: list[str],
     confidence_threshold: float,
     padding_ratio: float,
     min_component_area: int,
     max_detections: int,
     detector_model_id: str | None = None,
 ) -> dict[str, Any]:
-    # Use the first classifier's input shape for fallback check
-    first_classifier = classifiers[0] if classifiers else None
+    """
+    So sánh các model theo thứ tự (load → chạy → giải phóng từng model một).
+    Giữ RAM trong giới hạn 512MB Render Free bằng cách không giữ 2+ model trong bộ nhớ cùng lúc.
+    """
+    import gc
+    from backend.app.services.classifier_service import get_classifier, evict_classifier
+
+    # Bước 1: Phát hiện tế bào trước (không cần classifier, chỉ dùng contour+YOLO-detector)
     boxes, crops, fallback_used = prepare_slide_count_candidates(
         image,
         padding_ratio=padding_ratio,
         min_component_area=min_component_area,
         max_detections=max_detections,
         detector_model_id=detector_model_id,
-        classifier=first_classifier,
+        classifier=None,
     )
 
+    # Bước 2: Chạy từng model tuần tự, giải phóng RAM giữa các lượt
     model_results: list[dict[str, Any]] = []
     comparison_rows: list[dict[str, Any]] = []
-    for classifier in classifiers:
-        if classifier.unified or classifier.model_id == "best9":
-            result = run_yolo_unified_analysis(
-                image,
-                filename=filename,
-                confidence_threshold=confidence_threshold,
-                max_detections=max_detections,
-            )
-            result["note"] = "Unified model uses its own built-in detection and classification."
-        else:
-            predictions = run_batch_prediction(crops, classifier)
-            summary = summarize_slide_count(predictions, boxes, confidence_threshold, classifier)
-            result = {
-                "mode": "analyze",
-                "analysis_mode": "slide_count",
-                "selected_model_id": classifier.model_id,
-                "selected_model_name": classifier.display_name,
-                "input_shape": classifier.input_shape,
-                "preprocessing": classifier.preprocessing,
-                "filename": filename,
-                "image_size": {"width": image.width, "height": image.height},
-                "confidence_threshold": confidence_threshold,
-                "padding_ratio": padding_ratio,
-                "min_component_area": min_component_area,
-                "max_detections": max_detections,
-                "fallback_used": fallback_used,
-                "analysis_method": "Detect once, classify shared crops across multiple models",
-                "count_unit": "detected cells",
-                "note": "All compared models use the same detected boxes and crops for a fair comparison.",
-                **summary,
-            }
-        model_results.append(result)
-        comparison_rows.append(build_comparison_entry(result))
+
+    for model_id in model_ids:
+        try:
+            classifier = get_classifier(model_id)
+
+            if classifier.unified or classifier.model_id == "best9":
+                result = run_yolo_unified_analysis(
+                    image,
+                    filename=filename,
+                    confidence_threshold=confidence_threshold,
+                    max_detections=max_detections,
+                )
+                result["note"] = "Unified model uses its own built-in detection and classification."
+            else:
+                predictions = run_batch_prediction(crops, classifier)
+                summary = summarize_slide_count(predictions, boxes, confidence_threshold, classifier)
+                result = {
+                    "mode": "analyze",
+                    "analysis_mode": "slide_count",
+                    "selected_model_id": classifier.model_id,
+                    "selected_model_name": classifier.display_name,
+                    "input_shape": classifier.input_shape,
+                    "preprocessing": classifier.preprocessing,
+                    "filename": filename,
+                    "image_size": {"width": image.width, "height": image.height},
+                    "confidence_threshold": confidence_threshold,
+                    "padding_ratio": padding_ratio,
+                    "min_component_area": min_component_area,
+                    "max_detections": max_detections,
+                    "fallback_used": fallback_used,
+                    "analysis_method": "Detect once, classify shared crops across multiple models",
+                    "count_unit": "detected cells",
+                    "note": "All compared models use the same detected boxes and crops for a fair comparison.",
+                    **summary,
+                }
+
+            model_results.append(result)
+            comparison_rows.append(build_comparison_entry(result))
+
+        finally:
+            # Giải phóng ONNX session của model này trước khi load model tiếp theo
+            evict_classifier(model_id)
+            gc.collect()
 
     best_by_average_confidence = max(comparison_rows, key=lambda item: item["average_confidence"], default=None)
     best_by_detected_cells = max(comparison_rows, key=lambda item: item["detected_cell_count"], default=None)
@@ -894,7 +911,7 @@ def run_model_comparison(
         "comparison_rows": comparison_rows,
         "best_by_average_confidence": best_by_average_confidence,
         "best_by_detected_cells": best_by_detected_cells,
-        "note": "So sánh này dùng cùng một bộ frame crop cho tất cả model để tránh chênh lệch do detector.",
+        "note": "So sánh này chạy tuần tự từng model (load→chạy→giải phóng) để tiết kiệm RAM.",
     }
 
 

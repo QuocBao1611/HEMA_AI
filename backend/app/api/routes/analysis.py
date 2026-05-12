@@ -26,7 +26,8 @@ from backend.app.services.analysis_service import (
 )
 from backend.app.services.classifier_service import (
     get_classifier,
-    get_comparison_classifiers,
+    get_classifier_registry,
+    parse_model_ids_json,
     preprocess_image,
     read_image_from_bytes,
     vector_to_prediction_items,
@@ -318,14 +319,16 @@ async def compare_models(
     )
 
     logger.info("Starting compare-models for %s", safe_filename(file.filename))
-    async with inference_semaphore:
-        classifiers = get_comparison_classifiers(model_ids_json)
+    requested_ids = parse_model_ids_json(model_ids_json)
+    if not requested_ids:
+        requested_ids = list(get_classifier_registry().keys())
 
+    async with inference_semaphore:
         def _run_comparison() -> dict[str, Any]:
             return run_model_comparison(
                 image,
                 filename=file.filename,
-                classifiers=classifiers,
+                model_ids=requested_ids,
                 confidence_threshold=normalized_threshold,
                 padding_ratio=normalized_padding,
                 min_component_area=normalized_min_component_area,
@@ -336,7 +339,7 @@ async def compare_models(
     record_analysis(
         result,
         {
-            "model_ids": [classifier.model_id for classifier in classifiers],
+            "model_ids": requested_ids,
             "confidence_threshold": normalized_threshold,
             "padding_ratio": normalized_padding,
             "min_component_area": normalized_min_component_area,

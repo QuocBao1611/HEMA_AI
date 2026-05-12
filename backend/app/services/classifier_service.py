@@ -421,6 +421,20 @@ def get_classifier(model_id: str | None) -> LoadedClassifier:
         
     return classifier
 
+def evict_classifier(model_id: str) -> None:
+    """
+    Xóa model khỏi registry và giải phóng ONNX session khỏi bộ nhớ.
+    Dùng sau mỗi bước trong quá trình so sánh để tránh OOM.
+    """
+    global _CLASSIFIER_REGISTRY
+    if _CLASSIFIER_REGISTRY is None:
+        return
+    clf = _CLASSIFIER_REGISTRY.pop(model_id, None)
+    if clf is not None:
+        # Free the ONNX InferenceSession
+        if hasattr(clf.model, "_session") and clf.model._session is not None:
+            clf.model._session = None
+
 
 def parse_model_ids_json(model_ids_json: str | None) -> list[str]:
     if not model_ids_json:
