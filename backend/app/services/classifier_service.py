@@ -119,7 +119,7 @@ def slugify_model_id(value: str) -> str:
 
 
 def discover_model_paths() -> list[Path]:
-    """Chỉ scan .onnx files trong classifiers directory — detectors dùng analysis_service."""
+    """Scan .onnx files trong classifiers và detectors directories."""
     discovered: list[Path] = []
 
     if CLASSIFIER_MODELS_DIR.exists():
@@ -128,12 +128,19 @@ def discover_model_paths() -> list[Path]:
                 continue
             discovered.append(path)
 
+    if DETECTOR_MODELS_DIR.exists():
+        for path in sorted(DETECTOR_MODELS_DIR.glob("*.onnx")):
+            if "_sanitized" in path.stem:
+                continue
+            discovered.append(path)
+
     if not discovered:
         raise RuntimeError(
-            "Không tìm thấy file model .onnx trong thư mục models/classifiers/. "
+            "Không tìm thấy file model .onnx trong thư mục models/classifiers/ hoặc models/detectors/. "
             "Chạy scripts/convert_to_onnx.py trước."
         )
     return sorted(discovered, key=lambda p: p.stat().st_mtime, reverse=True)
+
 
 
 

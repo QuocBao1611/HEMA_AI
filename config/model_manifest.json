@@ -9,6 +9,28 @@
       "display_name": "Best Model V2 (ResNet50)",
       "preprocessing": "resnet50",
       "model_id": "best_model_v2"
+    },
+    "best9.onnx": {
+      "display_name": "Best9 YOLO (unified)",
+      "preprocessing": "yolo_detect",
+      "model_id": "best9",
+      "num_classes": 14,
+      "input_shape": [
+        640,
+        640,
+        3
+      ]
+    },
+    "yolov8n-bccd.onnx": {
+      "display_name": "YOLOv8n BCCD",
+      "preprocessing": "yolo_detect",
+      "model_id": "yolov8n_bccd",
+      "num_classes": 3,
+      "input_shape": [
+        640,
+        640,
+        3
+      ]
     }
   }
 }
