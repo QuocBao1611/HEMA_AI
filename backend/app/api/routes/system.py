@@ -43,6 +43,9 @@ def _build_lightweight_model_list() -> list:
     on Render Free Tier (512MB RAM).
     
     Models are lazy-loaded on first analysis request only.
+    
+    NOTE: Chỉ trả về classifier models (preprocessing != yolo_detect).
+    Detector models (best9, yolov8n) được analysis_service quản lý riêng.
     """
     from backend.app.services.classifier_service import discover_model_paths, load_model_manifest, slugify_model_id
     manifest = load_model_manifest()
@@ -51,6 +54,12 @@ def _build_lightweight_model_list() -> list:
     models = []
     for model_path in model_paths:
         manifest_entry = manifest.get(model_path.name, {})
+        preprocessing = str(manifest_entry.get("preprocessing", "mobilenet_v2"))
+        
+        # Bỏ qua detector models — chúng không phải classifier
+        if preprocessing == "yolo_detect":
+            continue
+            
         base_id = slugify_model_id(str(manifest_entry.get("model_id") or model_path.stem))
         if model_path.name == "best (9).pt" or model_path.stem == "best9":
             base_id = "best9"
@@ -63,13 +72,14 @@ def _build_lightweight_model_list() -> list:
             "model_path": model_path.name,
             "loaded_model_path": model_path.name,
             "source_path": model_path.name,
-            "preprocessing": str(manifest_entry.get("preprocessing", "mobilenet_v2")),
+            "preprocessing": preprocessing,
             "num_classes": int(manifest_entry.get("num_classes", 14)),
             "input_shape": manifest_entry.get("input_shape", [224, 224, 3]),
             "unified": base_id == "best9",
         })
 
     return models
+
 
 
 def _build_available_models() -> list:
@@ -110,7 +120,9 @@ def health() -> dict[str, Any]:
         "default_model_id": default_model.get("model_id"),
         "default_model_name": default_model.get("display_name"),
         "model_path": default_model.get("source_path"),
+        "loaded_model_path": default_model.get("loaded_model_path"),
         "input_shape": default_model.get("input_shape"),
+
         "num_classes": default_model.get("num_classes"),
         "analysis_mode": "slide_count",
         "available_analysis_modes": ["slide_count", "grid_estimation"],
