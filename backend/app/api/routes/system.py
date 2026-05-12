@@ -60,12 +60,15 @@ def _build_lightweight_model_list() -> list:
         models.append({
             "model_id": base_id,
             "display_name": display_name,
+            "model_path": model_path.name,
+            "loaded_model_path": model_path.name,
             "source_path": model_path.name,
             "preprocessing": str(manifest_entry.get("preprocessing", "mobilenet_v2")),
             "num_classes": int(manifest_entry.get("num_classes", 14)),
             "input_shape": manifest_entry.get("input_shape", [224, 224, 3]),
             "unified": base_id == "best9",
         })
+
     return models
 
 
