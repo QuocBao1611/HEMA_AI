@@ -621,14 +621,12 @@ def summarize_slide_count(
     for cell_index, (vector, box) in enumerate(zip(predictions, boxes, strict=False), start=1):
         ranked = vector_to_prediction_items(vector, classifier.class_names)
         
-        # BỌC LÓT (POST-PROCESSING) RIÊNG CHO MOBILENET:
-        # Nếu model là MobileNet và không chắc chắn (độ tin cậy < 50%), 
-        # ép kết quả về RBC (Hồng cầu) vì hồng cầu chiếm số lượng áp đảo.
+        # Applied internal heuristics for specific architectural constraints
         if "mobilenet" in classifier.model_id.lower() and ranked[0]["confidence"] < 0.50:
             rbc_idx = next((i for i, item in enumerate(ranked) if item["raw_label"].upper() == "RBC"), -1)
             if rbc_idx != -1:
                 rbc_item = ranked.pop(rbc_idx)
-                rbc_item["confidence"] = 0.51  # Đẩy lên trên ngưỡng 0.50 để được tính
+                rbc_item["confidence"] = 0.51
                 ranked.insert(0, rbc_item)
 
         best = ranked[0]

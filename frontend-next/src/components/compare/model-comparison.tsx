@@ -441,11 +441,6 @@ export function ModelComparison() {
     const fallback = { accuracy: 90, weighted_precision: 89, weighted_recall: 89, weighted_f1: 89, inference_speed_score: 85, stability_score: 85 };
 
     const benchmarks = rows.map(r => allBenchmarks[r.model_id]?.metrics || fallback);
-    // Độ tin cậy benchmark: model tự train có dữ liệu thực → 1.0; model ngoài chưa kiểm chứng trên dataset này → 0.9
-    const benchmarkCredibility = rows.map(r => {
-      const src = allBenchmarks[r.model_id]?.source ?? "";
-      return src === "notebook" ? 1.0 : 0.9;
-    });
     const names = rows.map(r => r.display_name);
 
     const radarDatasets = rows.map((row, i) => {
@@ -478,7 +473,7 @@ export function ModelComparison() {
       { label: "Độ ổn định (Stability)", values: benchmarks.map(m => Math.round(m.stability_score || 85)), unit: "%" },
     ];
 
-    return { rows, names, radarDatasets, summaryCards, barMetrics, benchmarkCredibility };
+    return { rows, names, radarDatasets, summaryCards, barMetrics };
   }, [resultData, systemInfo]);
 
   const selectedModelNames = useMemo(() => {
@@ -583,11 +578,11 @@ export function ModelComparison() {
 
       {/* Results */}
       {showResults && mappedResults && (() => {
-        const { rows, names, radarDatasets, summaryCards, barMetrics, benchmarkCredibility } = mappedResults;
+        const { rows, names, radarDatasets, summaryCards, barMetrics } = mappedResults;
         const accuracies = barMetrics.find(m => m.label.includes("Accuracy"))?.values || rows.map(() => 0);
         const bestIdx = rows.reduce((best, row, i) => {
-          // Điểm số = độ tự tin thực tế × hệ số tin cậy benchmark (1.0 nếu có số liệu thực; 0.9 nếu À1ccúắtính)
-          const scoreOf = (idx: number) => rows[idx].average_confidence * benchmarkCredibility[idx];
+          // Comprehensive score based on real-time confidence and model stability metrics
+          const scoreOf = (idx: number) => rows[idx].average_confidence * (benchmarks[idx].stability_score / 100);
           if (scoreOf(i) > scoreOf(best)) return i;
           if (scoreOf(i) === scoreOf(best) && accuracies[i] > accuracies[best]) return i;
           return best;
