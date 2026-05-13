@@ -536,7 +536,7 @@ def preprocess_image(raw_bytes: bytes, classifier: LoadedClassifier) -> np.ndarr
 # ── Prediction helpers ────────────────────────────────────────────────────────
 def vector_to_prediction_items(vector: np.ndarray, labels: list[str]) -> list[dict[str, Any]]:
     ranked_indices = np.argsort(vector)[::-1]
-    items = [
+    return [
         {
             "index":      int(index),
             "label":      display_label_for_index(int(index), labels),
@@ -545,19 +545,6 @@ def vector_to_prediction_items(vector: np.ndarray, labels: list[str]) -> list[di
         }
         for index in ranked_indices
     ]
-    
-    # BỌC LÓT (POST-PROCESSING):
-    # Nếu mô hình phân loại không chắc chắn (độ tin cậy < 50%),
-    # ép kết quả về RBC (Hồng cầu) vì hồng cầu chiếm số lượng áp đảo trong tiêu bản máu.
-    if items and items[0]["confidence"] < 0.50:
-        rbc_idx = next((i for i, item in enumerate(items) if item["raw_label"].upper() == "RBC"), -1)
-        if rbc_idx != -1:
-            rbc_item = items.pop(rbc_idx)
-            # Nâng confidence lên 0.51 để vượt qua confidence_threshold (0.50) và được đếm
-            rbc_item["confidence"] = 0.51
-            items.insert(0, rbc_item)
-            
-    return items
 
 
 def update_classifier_labels(model_id: str, values: list[str]) -> LoadedClassifier:
