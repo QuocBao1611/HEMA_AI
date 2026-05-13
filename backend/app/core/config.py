@@ -39,7 +39,7 @@ DEFAULT_SQLITE_DATABASE_URL = f"sqlite:///{(DATA_DIR / 'hemavision.sqlite3').as_
 class Settings:
     app_name: str = os.getenv("APP_NAME", "TestModel Web System")
     cors_allow_origins: tuple[str, ...] = parse_cors_allow_origins(
-        os.getenv("CORS_ALLOW_ORIGINS", ",".join(DEFAULT_CORS_ALLOW_ORIGINS))
+        os.getenv("CORS_ALLOW_ORIGINS", ",".join(DEFAULT_CORS_ALLOW_ORIGINS + ["https://hema-ai.vercel.app", "https://*.vercel.app"]))
     )
     database_url: str = os.getenv(
         "DATABASE_URL",
@@ -55,7 +55,7 @@ class Settings:
     secret_key: str = os.getenv("SECRET_KEY", "hema_vision_super_secret_key_change_in_prod")
     algorithm: str = os.getenv("ALGORITHM", "HS256")
     access_token_expire_minutes: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "1440")) # Default 24h
-    frontend_url: str = os.getenv("FRONTEND_URL", "http://127.0.0.1:3000").rstrip("/")
+    frontend_url: str = os.getenv("FRONTEND_URL", "https://hema-ai.vercel.app").rstrip("/")
 
 
 settings = Settings()

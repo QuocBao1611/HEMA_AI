@@ -1,17 +1,16 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  output: "standalone",
+  // Vercel tự động optimize, không cần standalone
   typescript: { ignoreBuildErrors: true },
 
   // QUAN TRỌNG: Rewrite /api/v1/* từ frontend sang backend
-  // Khi deploy lên Render, frontend và backend là 2 service riêng biệt
-  // Next.js sẽ proxy các request /api/v1/* từ browser sang backend
+  // Khi deploy lên Vercel, frontend gọi backend qua HF Spaces (hoặc platform khác)
   async rewrites() {
     return [
       {
         source: "/api/v1/:path*",
-        destination: `${process.env.INTERNAL_API_URL || "http://localhost:8000/api/v1"}/:path*`,
+        destination: `${process.env.BACKEND_URL || "http://localhost:8000/api/v1"}/:path*`,
       },
     ];
   },

@@ -32,8 +32,8 @@ if [ ! -f "$MODEL_PATH" ]; then
     touch "$MODEL_PATH"
 fi
 
-echo "--- Starting HemaVision Backend on Port ${PORT:-10000} ---"
+echo "--- Starting HemaVision Backend on Port ${PORT:-7860} ---"
 
 # Chạy uvicorn từ /app (thư mục gốc chứa backend package)
-# --workers 1 để tiết kiệm RAM trên gói Free (512MB)
-exec uvicorn backend.app.main:app --host 0.0.0.0 --port "${PORT:-10000}" --workers 1
+# --workers 1 để tiết kiệm RAM
+exec uvicorn backend.app.main:app --host 0.0.0.0 --port "${PORT:-7860}" --workers 1

@@ -32,5 +32,9 @@ COPY database/ ./database/
 # Tạo các thư mục cần thiết (nếu chưa có)
 RUN mkdir -p /app/logs
 
-# Render inject $PORT tự động.
+# HF Spaces mặc định dùng port 7860
+ENV PORT=7860
+EXPOSE 7860
+
+# Render/HF Spaces inject $PORT tự động.
 CMD ["bash", "backend/startup.sh"]
