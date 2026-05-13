@@ -707,10 +707,7 @@ export function ModelComparison() {
                 </p>
               </div>
               <ul className="list-inside list-disc space-y-1.5 opacity-90">
-                <li>Hệ thống tính điểm theo công thức: <strong>Điểm số = Độ tự tin thực tế &times; Hệ số tin cậy</strong>.</li>
-                <li><strong>Hệ số tin cậy = 1.0</strong> nếu model có benchmark thực tế (đã tự huấn luyện và đo kiểm). <strong>= 0.9</strong> nếu benchmark là ước tính hoặc chưa kiểm chứng trên dataset này.</li>
-                <li>Nếu điểm số bằng nhau, hệ thống sẽ xem xét thêm <strong>Accuracy</strong> lịch sử để phân định.</li>
-                <li>Đối với các mẫu máu hiếm hoặc bất thường, bạn nên tham khảo ý kiến của bác sĩ huyết học thay vì hoàn toàn phụ thuộc vào một model.</li>
+                <li>Hệ thống tính điểm dựa trên độ tự tin thực tế kết hợp với các chỉ số hiệu năng (Accuracy, Precision, Recall) từ bộ dữ liệu kiểm chứng.</li>
               </ul>
             </div>
           )}
