@@ -130,13 +130,10 @@ async def security_and_logging_middleware(request: Request, call_next):
 
 
 # ── CORS configuration ────────────────────────────────────────────────
-# Allow known origins: local dev + Render frontend (hmai-frontend)
-# Sử dụng allow_origins=["*"] cho đơn giản, vì Render free tier có IP thay đổi
-# NHƯNG allow_origins=["*"] không hoạt động với allow_credentials=True
-# Nên ta dùng danh sách cụ thể + pattern cho Render
-
-_RENDER_FRONTEND_PATTERN = re.compile(
-    r"^https://hmai-frontend[-a-zA-Z0-9]*\.onrender\.com$"
+# Allow known origins: local dev + Vercel frontend
+# Sử dụng danh sách cụ thể + pattern cho Vercel
+_VERCEL_FRONTEND_PATTERN = re.compile(
+    r"^https://[-a-zA-Z0-9]*\.vercel\.app$"
 )
 
 _cors_origins = [
@@ -144,18 +141,17 @@ _cors_origins = [
     "http://127.0.0.1:3000",
     "http://localhost:8000",
     "http://127.0.0.1:8000",
-    "https://hmai-frontend.onrender.com",
     *list(settings.cors_allow_origins),
 ]
 
 
 def _cors_origin_validate(origin: str) -> bool:
-    """Check if an origin is allowed (static list or Render frontend pattern)."""
+    """Check if an origin is allowed (static list or Vercel frontend pattern)."""
     if not origin:
         return True  # Allow non-browser requests (server-to-server)
     if origin in _cors_origins:
         return True
-    if _RENDER_FRONTEND_PATTERN.match(origin):
+    if _VERCEL_FRONTEND_PATTERN.match(origin):
         return True
     return False
 
