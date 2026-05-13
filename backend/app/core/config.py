@@ -39,7 +39,7 @@ DEFAULT_SQLITE_DATABASE_URL = f"sqlite:///{(DATA_DIR / 'hemavision.sqlite3').as_
 class Settings:
     app_name: str = os.getenv("APP_NAME", "TestModel Web System")
     cors_allow_origins: tuple[str, ...] = parse_cors_allow_origins(
-        os.getenv("CORS_ALLOW_ORIGINS", ",".join(DEFAULT_CORS_ALLOW_ORIGINS + ["https://hema-ai.vercel.app", "https://*.vercel.app"]))
+        os.getenv("CORS_ALLOW_ORIGINS", ",".join(DEFAULT_CORS_ALLOW_ORIGINS + ("https://hema-ai.vercel.app", "https://*.vercel.app")))
     )
     database_url: str = os.getenv(
         "DATABASE_URL",
