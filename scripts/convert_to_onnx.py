@@ -85,9 +85,10 @@ def convert_keras_to_onnx(src_path: Path, dst_path: Path, opset: int = 13) -> bo
     num_classes = model.output_shape[-1]
     input_shape = model.input_shape  # e.g. (None, 224, 224, 3)
 
-    # Build input spec — thay None bang 1 cho batch dim
-    fixed_shape = [1 if d is None else d for d in input_shape]
-    input_spec = (tf.TensorSpec(fixed_shape, tf.float32, name="input"),)
+    # Build input spec — giữ nguyên None cho batch dim để hỗ trợ dynamic batch size
+    # Điều này rất quan trọng để có thể classify nhiều cropped cells cùng lúc!
+    dynamic_shape = [None if d is None else d for d in input_shape]
+    input_spec = (tf.TensorSpec(dynamic_shape, tf.float32, name="input"),)
 
     info("Converting voi tf2onnx ...")
     try:
