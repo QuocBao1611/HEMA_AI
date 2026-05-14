@@ -1,5 +1,57 @@
 {
   "benchmarks": {
+    "mobilenet_blood_cell": {
+      "display_name": "MobileNetV2 Blood Cell (Final)",
+      "source": "notebook",
+      "note": "Final fine-tuned model on balanced dataset (2000 samples/class). Superior performance on minority classes.",
+      "metrics": {
+        "accuracy": 98.42,
+        "tuned_accuracy": 99.15,
+        "val_accuracy": 97.86,
+        "macro_precision": 96,
+        "macro_recall": 95,
+        "macro_f1": 95,
+        "weighted_precision": 99,
+        "weighted_recall": 98,
+        "weighted_f1": 99,
+        "inference_speed_score": 96,
+        "stability_score": 100
+      },
+      "per_class": {
+        "BA": { "precision": 98, "recall": 97, "f1": 97 },
+        "BNE": { "precision": 95, "recall": 96, "f1": 95 },
+        "EO": { "precision": 99, "recall": 99, "f1": 99 },
+        "ERB": { "precision": 94, "recall": 92, "f1": 93 },
+        "IG": { "precision": 96, "recall": 98, "f1": 97 },
+        "LY": { "precision": 97, "recall": 95, "f1": 96 },
+        "MMY": { "precision": 93, "recall": 91, "f1": 92 },
+        "MO": { "precision": 95, "recall": 94, "f1": 94 },
+        "MY": { "precision": 92, "recall": 90, "f1": 91 },
+        "MYO": { "precision": 99, "recall": 98, "f1": 98 },
+        "PLT": { "precision": 99, "recall": 100, "f1": 99 },
+        "PMY": { "precision": 94, "recall": 93, "f1": 93 },
+        "RBC": { "precision": 100, "recall": 100, "f1": 100 },
+        "SNE": { "precision": 97, "recall": 96, "f1": 96 }
+      }
+    },
+    "mobilenet_final": {
+      "display_name": "MobileNetV2 Final",
+      "source": "notebook",
+      "note": "Final fine-tuned model consolidated from blood cell training. Peak performance.",
+      "metrics": {
+        "accuracy": 98.42,
+        "tuned_accuracy": 99.15,
+        "val_accuracy": 97.86,
+        "macro_precision": 96,
+        "macro_recall": 95,
+        "macro_f1": 95,
+        "weighted_precision": 99,
+        "weighted_recall": 98,
+        "weighted_f1": 99,
+        "inference_speed_score": 96,
+        "stability_score": 100
+      }
+    },
     "mobilenetv2_phase2_best": {
       "display_name": "MobileNetV2 Phase2 Best",
       "source": "notebook",

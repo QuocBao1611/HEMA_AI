@@ -22,8 +22,8 @@ BEST9_CONFIDENCE_THRESHOLD   = 0.25   # WBC hiếm (EO/ERB/MO) cần ngưỡng t
 DEFAULT_OVERLAP_RATIO = 0.25
 DEFAULT_MAX_REGIONS = 64   # Reduced from 144 to save RAM on Render Free Tier (512MB)
 DEFAULT_PADDING_RATIO = 0.10
-DEFAULT_MIN_COMPONENT_AREA = 300  # ~18x18px — loại artifact bụi nhỏ, giữ PLT thật (~20-35px)
-DEFAULT_MAX_DETECTIONS = 128  # Reduced from 256 to save RAM on Render Free Tier (512MB)
+DEFAULT_MIN_COMPONENT_AREA = 100  # ~18x18px — loại artifact bụi nhỏ, giữ PLT thật (~20-35px)
+DEFAULT_MAX_DETECTIONS = 300  # Increased for improved detector (Monitor RAM on Render Free Tier)
 DETECTION_MAX_DIMENSION = 1536
 MIN_COMPONENT_SIDE = 18  # PLT thật ≥ 20px/chiều; bụi artifact ≤ 12px
 
@@ -80,6 +80,8 @@ def list_detector_models() -> list[dict[str, str]]:
         detector_id = slugify_detector_id(path)
         if detector_id in ("best_9", "best9"):
             display_name = "Best9 YOLO (unified)"
+        elif detector_id == "blood_cell_best":
+            display_name = "Blood Cell Detector (Improved)"
         else:
             display_name = path.stem.replace("-", " ").replace("_", " ").title()
         items.append(
@@ -121,7 +123,8 @@ def _yolo_preprocess(image: np.ndarray, imgsz: int = 640):
     scale = imgsz / max(h0, w0)
     nh, nw = int(h0 * scale), int(w0 * scale)
 
-    resized = cv2.resize(image, (nw, nh), interpolation=cv2.INTER_LINEAR)
+    # Dùng INTER_CUBIC để giữ độ sắc nét biên tế bào tốt hơn
+    resized = cv2.resize(image, (nw, nh), interpolation=cv2.INTER_CUBIC)
     canvas = np.full((imgsz, imgsz, 3), 114, dtype=np.uint8)
     pt = (imgsz - nh) // 2
     pl = (imgsz - nw) // 2
@@ -157,10 +160,15 @@ def _yolo_postprocess(outputs: list, meta: dict, conf_thres: float = 0.20, iou_t
         if conf < conf_thres:
             continue
 
-        x1 = np.clip((cx - w/2 - pl) / scale, 0, ow)
-        y1 = np.clip((cy - h/2 - pt) / scale, 0, oh)
-        x2 = np.clip((cx + w/2 - pl) / scale, 0, ow)
-        y2 = np.clip((cy + h/2 - pt) / scale, 0, oh)
+        # Tính toán tọa độ float chính xác cao
+        x1 = (cx - w/2 - pl) / scale
+        y1 = (cy - h/2 - pt) / scale
+        x2 = (cx + w/2 - pl) / scale
+        y2 = (cy + h/2 - pt) / scale
+        
+        # Clip về giới hạn ảnh gốc
+        x1, x2 = np.clip([x1, x2], 0, ow)
+        y1, y2 = np.clip([y1, y2], 0, oh)
 
         raw_boxes.append([x1, y1, x2 - x1, y2 - y1])
         raw_scores.append(float(conf))
@@ -177,6 +185,7 @@ def _yolo_postprocess(outputs: list, meta: dict, conf_thres: float = 0.20, iou_t
             "y1": int(round(y)),
             "x2": int(round(x + w)),
             "y2": int(round(y + h)),
+            "score": float(raw_scores[i]),
         })
     return kept
 
@@ -190,6 +199,8 @@ def initialize_detection_runtime(detector_model_id: str | None = None) -> ort.In
     if detector_id not in _YOLO_ONNX_SESSIONS:
         if not detector_path.exists() or detector_path.stat().st_size == 0:
             raise RuntimeError(f"Detector ONNX file not found or empty: {detector_path}")
+        import logging
+        logging.getLogger(__name__).info(f"🚀 LOADING DETECTOR: {detector_path}")
         _YOLO_ONNX_SESSIONS[detector_id] = ort.InferenceSession(
             str(detector_path),
             sess_options=_make_onnx_session_opts(),
@@ -289,6 +300,7 @@ def summarize_grid_analysis(
     for region_index, (vector, region) in enumerate(zip(predictions, regions, strict=False), start=1):
         ranked = vector_to_prediction_items(vector, classifier.class_names)
         best = ranked[0]
+        # Temperature Scaling đã được áp dụng trong OnnxClassifierAdapter.predict()
         region_result = {
             "region_id": region_index,
             "box": region,
@@ -455,9 +467,9 @@ def compute_iou(box1: dict[str, int], box2: dict[str, int]) -> float:
 def detect_cell_boxes(
     image: Image.Image,
     *,
-    padding_ratio: float,
     min_component_area: int,
     max_detections: int,
+    confidence_threshold: float = 0.25,
     detector_model_id: str | None = None,
 ) -> list[dict[str, int]]:
     import time
@@ -470,9 +482,9 @@ def detect_cell_boxes(
     total_pixels = detection_image.width * detection_image.height
     total_img_pixels = image.width * image.height  # tính sẵn ra ngoài vòng lặp
 
-    # Bước 2: Contour detection trên ảnh đã resize
-    mask = build_candidate_mask(image_array)
-    components = extract_connected_components(mask)
+    # Bước 2: Contour detection (ĐÃ VÔ HIỆU HÓA để tránh nhiễu hộp trống #2, ưu tiên YOLO)
+    mask = None
+    components = []
 
     adaptive_min_area = max(int(min_component_area), max(300, int(total_pixels * 0.0004)))
     adaptive_max_area = int(total_pixels * 0.25)
@@ -496,6 +508,7 @@ def detect_cell_boxes(
                 "y1": int(round(component["y1"] / scale)),
                 "x2": int(round(component["x2"] / scale)),
                 "y2": int(round(component["y2"] / scale)),
+                "score": 0.4,  # Điểm tin cậy thấp cho thuật toán truyền thống
             }
         )
 
@@ -507,7 +520,8 @@ def detect_cell_boxes(
     tensor, meta = _yolo_preprocess(image_np, imgsz=640)
     input_name = yolo_session.get_inputs()[0].name
     outputs = yolo_session.run(None, {input_name: tensor})
-    yolo_boxes = _yolo_postprocess(outputs, meta, conf_thres=0.20, iou_thres=0.45)
+    # Sử dụng đúng ngưỡng tin cậy từ UI truyền xuống
+    yolo_boxes = _yolo_postprocess(outputs, meta, conf_thres=confidence_threshold, iou_thres=0.45)
 
     for box in yolo_boxes:
         area = (box["x2"] - box["x1"]) * (box["y2"] - box["y1"])
@@ -522,6 +536,7 @@ def detect_cell_boxes(
                 "y1": int(round(box["y1"] / scale)),
                 "x2": int(round(box["x2"] / scale)),
                 "y2": int(round(box["y2"] / scale)),
+                "score": box["score"],  # Dùng score thực tế từ YOLO
             }
         )
 
@@ -531,30 +546,30 @@ def detect_cell_boxes(
     for box in raw_boxes:
         box["area"] = (box["x2"] - box["x1"]) * (box["y2"] - box["y1"])
 
-    # Bước 4: NMS với cv2 (nhanh hơn O(n²) Python loop)
+    # Bước 4: NMS với cv2 (DÙNG SCORE THAY VÌ DIỆN TÍCH)
     if raw_boxes:
         nms_input_boxes = [
             [b["x1"], b["y1"], b["x2"] - b["x1"], b["y2"] - b["y1"]] for b in raw_boxes
         ]
-        nms_scores = [float(b["area"]) for b in raw_boxes]  # dùng area làm score proxy
-        indices = cv2.dnn.NMSBoxes(nms_input_boxes, nms_scores, score_threshold=0, nms_threshold=0.4)
+        nms_scores = [float(b["score"]) for b in raw_boxes]  # Score chuẩn từ model
+        # Dùng nms_threshold thấp (0.3) để lọc các box chồng lấn tốt hơn
+        indices = cv2.dnn.NMSBoxes(nms_input_boxes, nms_scores, score_threshold=0.25, nms_threshold=0.3)
         kept_boxes = [raw_boxes[i] for i in (indices.flatten() if len(indices) else [])]
     else:
         kept_boxes = []
 
     t3 = time.perf_counter()
 
-    # Bước 5: Expand boxes và sắp xếp
+    # Bước 5: Giữ hộp KHÍT cho UI (không padding ở bước này)
     boxes: list[dict[str, int]] = []
     for kept in kept_boxes:
-        expanded_box = expand_box_xyxy((kept["x1"], kept["y1"], kept["x2"], kept["y2"]), padding_ratio, image.size)
-        x1, y1, x2, y2 = expanded_box
+        x1, y1, x2, y2 = kept["x1"], kept["y1"], kept["x2"], kept["y2"]
         boxes.append(
             {
-                "x1": x1,
-                "y1": y1,
-                "x2": x2,
-                "y2": y2,
+                "x1": int(x1),
+                "y1": int(y1),
+                "x2": int(x2),
+                "y2": int(y2),
                 "area": int((x2 - x1) * (y2 - y1)),
             }
         )
@@ -608,6 +623,11 @@ def aggregate_prediction_buckets(buckets: dict[Any, dict[str, Any]], total_count
     return aggregated
 
 
+# ── Model calibration ────────────────────────────────────────────────────────
+# KHÔNG CÒN BUFF THỦ CÔNG.
+# Temperature Scaling (T=0.511) được áp dụng tự động trong
+# OnnxClassifierAdapter.predict() cho model blood_cell_final.
+# Xem classifier_service.py _TEMPERATURE_MAP và _apply_temperature_scaling.
 def summarize_slide_count(
     predictions: np.ndarray,
     boxes: list[dict[str, int]],
@@ -620,16 +640,8 @@ def summarize_slide_count(
 
     for cell_index, (vector, box) in enumerate(zip(predictions, boxes, strict=False), start=1):
         ranked = vector_to_prediction_items(vector, classifier.class_names)
-        
-        # Applied internal heuristics for specific architectural constraints
-        if "mobilenet" in classifier.model_id.lower() and ranked[0]["confidence"] < 0.50:
-            rbc_idx = next((i for i, item in enumerate(ranked) if item["raw_label"].upper() == "RBC"), -1)
-            if rbc_idx != -1:
-                rbc_item = ranked.pop(rbc_idx)
-                rbc_item["confidence"] = 0.51
-                ranked.insert(0, rbc_item)
-
         best = ranked[0]
+        # Temperature Scaling đã được áp dụng trong OnnxClassifierAdapter.predict()
         grouped_label = DIAGNOSTIC_GROUP_BY_LABEL.get(best["raw_label"], best["raw_label"])
         counted = best["confidence"] >= confidence_threshold
 
@@ -725,14 +737,15 @@ def prepare_slide_count_candidates(
     padding_ratio: float,
     min_component_area: int,
     max_detections: int,
+    confidence_threshold: float,
     detector_model_id: str | None = None,
     classifier: LoadedClassifier | None = None,
 ) -> tuple[list[dict[str, int]], list[Image.Image], bool]:
     boxes = detect_cell_boxes(
         image,
-        padding_ratio=padding_ratio,
         min_component_area=min_component_area,
         max_detections=max_detections,
+        confidence_threshold=confidence_threshold,
         detector_model_id=detector_model_id,
     )
     fallback_used = False
@@ -748,7 +761,11 @@ def prepare_slide_count_candidates(
         boxes = [{"x1": 0, "y1": 0, "x2": image.width, "y2": image.height, "area": image.width * image.height}]
         fallback_used = True
 
-    crops = [image.crop((box["x1"], box["y1"], box["x2"], box["y2"])) for box in boxes]
+    crops = []
+    for box in boxes:
+        # Áp dụng padding khi crop để model phân loại có đủ context
+        eb = expand_box_xyxy((box["x1"], box["y1"], box["x2"], box["y2"]), padding_ratio, image.size)
+        crops.append(image.crop(eb))
     return boxes, crops, fallback_used
 
 
@@ -768,6 +785,7 @@ def run_slide_count_analysis(
         padding_ratio=padding_ratio,
         min_component_area=min_component_area,
         max_detections=max_detections,
+        confidence_threshold=confidence_threshold,
         detector_model_id=detector_model_id,
         classifier=classifier,
     )
@@ -848,6 +866,7 @@ def run_model_comparison(
         padding_ratio=padding_ratio,
         min_component_area=min_component_area,
         max_detections=max_detections,
+        confidence_threshold=confidence_threshold,
         detector_model_id=detector_model_id,
         classifier=None,
     )

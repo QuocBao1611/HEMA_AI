@@ -142,11 +142,17 @@ function recomputeCounts(
 const OPTIMAL_PARAMS: Record<string, Partial<AnalysisFormValues>> = {
   // MobileNet (model tự train, 2 bước: detect rồi crop + classify)
   // Cần confidence cao hơn để lọc FP, padding lớn hơn để crop đủ ngữ cảnh
+  mobilenet_blood_cell: {
+    confidence_threshold: 0.35,
+    max_detections: 300,
+    padding_ratio: 0.12,
+    min_component_area: 100,
+  },
   mobilenetv2_phase2_best: {
     confidence_threshold: 0.25,
-    max_detections: 128,
+    max_detections: 300,
     padding_ratio: 0.10,
-    min_component_area: 120,
+    min_component_area: 100,
   },
   mobilenetv2_final_finetuned: {
     confidence_threshold: 0.30,
@@ -162,9 +168,9 @@ const OPTIMAL_PARAMS: Record<string, Partial<AnalysisFormValues>> = {
   },
   best_model_v2: {
     confidence_threshold: 0.25,
-    max_detections: 128,
+    max_detections: 300,
     padding_ratio: 0.10,
-    min_component_area: 120,
+    min_component_area: 100,
   },
 };
 

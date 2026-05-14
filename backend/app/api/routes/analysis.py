@@ -161,6 +161,7 @@ async def predict(
         predictions = await run_in_threadpool(_predict)
     prediction_items = vector_to_prediction_items(predictions, classifier.class_names)
     best = prediction_items[0]
+    # Temperature Scaling đã được áp dụng trong OnnxClassifierAdapter.predict()
 
     result = {
         "mode": "predict",

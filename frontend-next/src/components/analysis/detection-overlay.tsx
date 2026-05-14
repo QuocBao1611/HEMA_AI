@@ -140,17 +140,17 @@ export function DetectionOverlay({
       // Image
       ctx.drawImage(img, 0, 0, img.width, img.height, transform.x, transform.y, img.width * finalScale, img.height * finalScale);
 
-      const lineWidth = Math.min(5, Math.max(2, Math.round(2.5 * baseScale)));
-      const fontSize = Math.min(18, Math.max(11, Math.round(13 * baseScale)));
-      const padding = Math.min(8, Math.max(4, Math.round(4 * baseScale)));
+      const lineWidth = Math.min(3, Math.max(1.5, Math.round(1.5 * baseScale)));
+      const fontSize = Math.min(16, Math.max(10, Math.round(12 * baseScale)));
+      const padding = Math.min(6, Math.max(3, Math.round(3 * baseScale)));
       ctx.font = `bold ${fontSize}px Inter, system-ui, sans-serif`;
 
       // Draw each detection
       for (const det of detections) {
-        const x = det.box.x * finalScale + transform.x;
-        const y = det.box.y * finalScale + transform.y;
-        const w = det.box.width * finalScale;
-        const h = det.box.height * finalScale;
+        const x = Math.floor(det.box.x * finalScale + transform.x) + 0.5;
+        const y = Math.floor(det.box.y * finalScale + transform.y) + 0.5;
+        const w = Math.floor(det.box.width * finalScale);
+        const h = Math.floor(det.box.height * finalScale);
 
         if (x + w < 0 || y + h < 0 || x > canvas.width || y > canvas.height) continue;
 

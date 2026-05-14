@@ -34,6 +34,40 @@ DEFAULT_MODEL_PREPROCESSING = "mobilenet_v2"
 RESAMPLING = getattr(Image, "Resampling", Image)
 
 
+# ── Temperature Scaling constants ──────────────────────────────────────────
+# Hệ số hiệu chuẩn T = 0.5204 được áp dụng cho bản Final để duy trì 
+# tính tin cậy đồng nhất trên các nền tảng triển khai.
+_TEMPERATURE_MAP: dict[str, float] = {
+    "mobilenet_final": 0.5204,
+    "mobilenet_blood_cell": 0.5204,
+    "mobilenetv2_blood_cell_final": 0.5204,
+}
+
+
+def _apply_temperature_scaling(probs: np.ndarray, model_id: str) -> np.ndarray:
+    """
+    Áp dụng Temperature Scaling lên softmax probabilities.
+    Chỉ tác động lên các model đã được calibrate, các model khác bỏ qua.
+    """
+    T = _TEMPERATURE_MAP.get(model_id)
+    if T is None or T <= 0:
+        return probs
+
+    # Chuyển probability → logit (cẩn thận clip để tránh log(0))
+    eps = 1e-7
+    logits = np.log(np.clip(probs, eps, 1.0))
+
+    # Scale by temperature
+    scaled_logits = logits / T
+
+    # Softmax lại
+    scaled_logits -= np.max(scaled_logits, axis=-1, keepdims=True)
+    exp_s = np.exp(scaled_logits)
+    calibrated = exp_s / np.sum(exp_s, axis=-1, keepdims=True)
+
+    return calibrated.astype(np.float32)
+
+
 # ── ONNX Session Options (shared) ──────────────────────────────────────────
 def _make_session_options() -> ort.SessionOptions:
     opts = ort.SessionOptions()
@@ -48,10 +82,12 @@ class OnnxClassifierAdapter:
     """
     Unified ONNX inference adapter cho cả TF/Keras và YOLO models đã convert.
     Thread-safe (ort.InferenceSession là thread-safe sau khi khởi tạo).
+    Hỗ trợ Temperature Scaling cho model đã calibrate.
     """
 
-    def __init__(self, model_path: Path):
+    def __init__(self, model_path: Path, model_id: str = ""):
         self.model_path = model_path
+        self.model_id = model_id
         self._session: ort.InferenceSession | None = None
         self._input_name: str | None = None
 
@@ -80,11 +116,13 @@ class OnnxClassifierAdapter:
         Args:
             batch: shape (N, H, W, C) float32, đã qua preprocessing
         Returns:
-            shape (N, num_classes) float32
+            shape (N, num_classes) float32 — đã qua Temperature Scaling nếu model có T
         """
         sess = self._load()
         outputs = sess.run(None, {self._input_name: batch.astype(np.float32)})
-        return np.asarray(outputs[0], dtype=np.float32)
+        raw_probs = np.asarray(outputs[0], dtype=np.float32)
+        # Áp dụng Temperature Scaling ngay trong predict
+        return _apply_temperature_scaling(raw_probs, self.model_id)
 
 
 # ── LoadedClassifier dataclass ──────────────────────────────────────────────
@@ -240,7 +278,8 @@ def _load_onnx_classifier(model_path: Path, manifest_entry: dict[str, Any]) -> L
     Load một .onnx model và trả về LoadedClassifier.
     Đọc input/output shape trực tiếp từ ONNX graph.
     """
-    adapter = OnnxClassifierAdapter(model_path)
+    base_id = slugify_model_id(str(manifest_entry.get("model_id") or model_path.stem))
+    adapter = OnnxClassifierAdapter(model_path, model_id=base_id)
     sess = adapter._load()
 
     inp = sess.get_inputs()[0]
@@ -274,7 +313,6 @@ def _load_onnx_classifier(model_path: Path, manifest_entry: dict[str, Any]) -> L
 
     class_names = load_class_names(num_classes)
 
-    base_id = slugify_model_id(str(manifest_entry.get("model_id") or model_path.stem))
     is_unified = False
     if model_path.stem in ("best9", "best_9"):
         base_id = "best9"
@@ -339,8 +377,9 @@ def initialize_classifier_registry() -> tuple[dict[str, LoadedClassifier], str]:
 
     _CLASSIFIER_REGISTRY = registry
     _DEFAULT_MODEL_ID = (
-        "mobilenetv2_phase2_best" if "mobilenetv2_phase2_best" in registry
-        else next(iter(registry))
+        "mobilenet_final" if "mobilenet_final" in registry
+        else ("mobilenet_blood_cell" if "mobilenet_blood_cell" in registry
+        else ("mobilenetv2_phase2_best" if "mobilenetv2_phase2_best" in registry else next(iter(registry))))
     )
     return _CLASSIFIER_REGISTRY, _DEFAULT_MODEL_ID
 

@@ -1,9 +1,24 @@
 {
   "models": {
+    "MobilenetV2.onnx": {
+      "display_name": "MobileNetV2 (New)",
+      "preprocessing": "mobilenet_v2",
+      "model_id": "mobilenetv2_new"
+    },
     "mobilenetv2_phase2_best.onnx": {
       "display_name": "MobileNetV2 Phase2 Best",
       "preprocessing": "mobilenet_v2",
       "model_id": "mobilenetv2_phase2_best"
+    },
+    "mobilenetv2_final.onnx": {
+      "display_name": "MobileNetV2 Final",
+      "preprocessing": "mobilenet_v2",
+      "model_id": "mobilenet_final"
+    },
+    "mobilenetv2_blood_cell_final.onnx": {
+      "display_name": "MobileNetV2 Blood Cell (Final) [deprecated]",
+      "preprocessing": "mobilenet_v2",
+      "model_id": "mobilenet_blood_cell"
     },
     "best_model_v2.onnx": {
       "display_name": "Best Model V2 (ResNet50)",

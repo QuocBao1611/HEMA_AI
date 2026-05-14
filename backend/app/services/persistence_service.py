@@ -165,7 +165,7 @@ def sync_model_catalog() -> tuple[bool, str | None]:
             "input_shape": manifest_entry.get("input_shape", [224, 224, 3]),
         })
     
-    default_model_id = "mobilenetv2_phase2_best" if any(e["model_id"] == "mobilenetv2_phase2_best" for e in catalog_entries) else (catalog_entries[0]["model_id"] if catalog_entries else "best9")
+    default_model_id = "mobilenet_blood_cell" if any(e["model_id"] == "mobilenet_blood_cell" for e in catalog_entries) else ("mobilenetv2_phase2_best" if any(e["model_id"] == "mobilenetv2_phase2_best" for e in catalog_entries) else (catalog_entries[0]["model_id"] if catalog_entries else "best9"))
 
     try:
         with open_session() as db:

@@ -75,8 +75,8 @@ def _build_lightweight_model_list() -> list:
             })
             continue
         
-        # yolov8n là detector thuần — bỏ qua
-        if "yolov8" in model_path.stem.lower():
+        # yolov8n/blood_cell_best là detector thuần — bỏ qua
+        if any(x in model_path.stem.lower() for x in ("yolov8", "blood_cell_best")):
             continue
             
         # Classifier models thông thường

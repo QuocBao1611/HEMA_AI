@@ -157,7 +157,8 @@ function BarComparison({ metrics, names }: { metrics: Metric[]; names: string[] 
             <div key={names[i]} className={`relative ${i > 0 ? 'mt-1' : ''} h-1.5 overflow-hidden rounded-full bg-muted`}>
               <div
                 className="absolute left-0 top-0 h-full rounded-full transition-all duration-700"
-                style={{ width: `${v}%`, background: MODEL_COLORS[i], opacity: i === 0 ? 1 : 0.8 }}
+                style={{ width: `${v}%`, background: MODEL_COLORS[i], opacity: 1 }}
+
               />
             </div>
           ))}
@@ -581,12 +582,14 @@ export function ModelComparison() {
         const { rows, names, radarDatasets, summaryCards, barMetrics } = mappedResults;
         const accuracies = barMetrics.find(m => m.label.includes("Accuracy"))?.values || rows.map(() => 0);
         const bestIdx = rows.reduce((best, row, i) => {
-          // Comprehensive score based on real-time confidence and model stability metrics
-          const scoreOf = (idx: number) => rows[idx].average_confidence * (benchmarks[idx].stability_score / 100);
+          // Unbiased score based on real-time confidence and accuracy metrics
+          const scoreOf = (idx: number) => rows[idx].average_confidence;
           if (scoreOf(i) > scoreOf(best)) return i;
           if (scoreOf(i) === scoreOf(best) && accuracies[i] > accuracies[best]) return i;
           return best;
         }, 0);
+
+
 
         const highestConfIdx = rows.reduce((best, row, i) => {
           return row.average_confidence > rows[best].average_confidence ? i : best;
