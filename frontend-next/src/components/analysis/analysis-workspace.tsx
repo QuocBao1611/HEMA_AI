@@ -972,6 +972,7 @@ export function AnalysisWorkspace() {
                   onCorrect={handleCorrect}
                   onUndoCorrect={handleUndoCorrect}
                   onDelete={handleDeleteDetection}
+                  modelId={result.selected_model_id}
                 />
               </SurfaceCard>
             ) : null}

@@ -14,6 +14,7 @@ import {
   Info,
   Sparkles,
   Layers,
+  AlertTriangle,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import type { RegionPrediction } from "@/types/api";
@@ -53,6 +54,7 @@ type CellReviewGalleryProps = {
   onCorrect: (regionId: number, newLabel: string) => void;
   onUndoCorrect: (regionId: number) => void;
   onDelete?: (regionId: number) => void;
+  modelId?: string;
 };
 
 /* ------------------------------------------------------------------ */
@@ -329,10 +331,12 @@ function PreviewModal({
   cell,
   imageSrc,
   onClose,
+  modelId,
 }: {
   cell: CellCrop;
   imageSrc: string;
   onClose: () => void;
+  modelId?: string;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [showXai, setShowXai] = useState(false);
@@ -373,18 +377,20 @@ function PreviewModal({
   }, [imageSrc, cell]);
 
   // Fetch XAI data
-  const { data: xaiData, isLoading: xaiLoading } = useQuery({
-    queryKey: ["xai", cell.regionId, selectedClass],
+  const { data: xaiData, isLoading: xaiLoading, error: queryError } = useQuery({
+    queryKey: ["xai", cell.regionId, selectedClass, modelId],
     queryFn: () => {
       if (!imageBlob) return null;
       // If we have a selected class name, find its index or pass undefined for top class
       // Note: We don't have the full class list here, but we can assume the server knows.
       // For simplicity, we just use the top class if selectedClass is null.
-      return fetchGradCAM(imageBlob);
+      return fetchGradCAM(imageBlob, undefined, modelId);
     },
     enabled: showXai && !!imageBlob,
     staleTime: 5 * 60 * 1000,
   });
+
+  const xaiError = queryError || (xaiData && !xaiData.success ? new Error(xaiData.error || "XAI failed") : null);
 
   return (
     <div
@@ -413,13 +419,23 @@ function PreviewModal({
               style={{ width: 320, height: 320 }}
             />
             {/* Heatmap Overlay */}
-            {showXai && xaiData?.heatmap_b64 && (
+            {showXai && xaiData?.heatmap_b64 && !xaiError && (
               <img
                 src={`data:image/png;base64,${xaiData.heatmap_b64}`}
                 alt="XAI Heatmap"
                 className="absolute inset-0 h-full w-full object-cover transition-opacity duration-300"
                 style={{ opacity }}
               />
+            )}
+            {/* Error Overlay */}
+            {showXai && xaiError && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/75 backdrop-blur-[2px] p-4 text-center">
+                <AlertTriangle className="h-8 w-8 text-amber-500 mb-2" />
+                <p className="text-xs font-bold text-white">Không tải được XAI</p>
+                <p className="text-[10px] text-slate-300 mt-1 leading-normal">
+                  {xaiError instanceof Error ? xaiError.message : String(xaiError)}
+                </p>
+              </div>
             )}
             {/* Loading Spinner */}
             {xaiLoading && (
@@ -567,6 +583,7 @@ export function CellReviewGallery({
   onCorrect,
   onUndoCorrect,
   onDelete,
+  modelId,
 }: CellReviewGalleryProps) {
   const [crops, setCrops] = useState<CellCrop[]>([]);
   const [activeFilter, setActiveFilter] = useState<string | null>(null);
@@ -727,6 +744,7 @@ export function CellReviewGallery({
           cell={previewCell}
           imageSrc={imageSrc}
           onClose={() => setPreviewCell(null)}
+          modelId={modelId}
         />
       )}
     </>

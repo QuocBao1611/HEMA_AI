@@ -26,12 +26,16 @@ export type XAIResult = {
 export async function fetchGradCAM(
   imageBlob: Blob,
   classIdx?: number,
+  modelId?: string,
 ): Promise<XAIResult> {
   const formData = new FormData();
   formData.set("file", imageBlob, "cell.jpg");
   
   if (classIdx !== undefined) {
     formData.set("class_idx", String(classIdx));
+  }
+  if (modelId) {
+    formData.set("model_id", modelId);
   }
   
   return apiPostForm<XAIResult>("/xai/gradcam", formData);
