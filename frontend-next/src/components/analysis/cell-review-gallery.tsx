@@ -10,9 +10,15 @@ import {
   Search,
   X,
   Trash2,
+  Activity,
+  Info,
+  Sparkles,
+  Layers,
 } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
 import type { RegionPrediction } from "@/types/api";
 import { formatPercent } from "@/lib/utils/format";
+import { fetchGradCAM } from "@/lib/api/xai";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -329,7 +335,12 @@ function PreviewModal({
   onClose: () => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [showXai, setShowXai] = useState(false);
+  const [opacity, setOpacity] = useState(0.5);
+  const [selectedClass, setSelectedClass] = useState<string | null>(null);
+  const [imageBlob, setImageBlob] = useState<Blob | null>(null);
 
+  // Load image and crop to canvas
   useEffect(() => {
     const img = new Image();
     img.crossOrigin = "anonymous";
@@ -343,49 +354,207 @@ function PreviewModal({
       if (!ctx) return;
       ctx.drawImage(
         img,
-        cell.box.x, cell.box.y, cell.box.width, cell.box.height,
-        0, 0, SIZE, SIZE,
+        cell.box.x,
+        cell.box.y,
+        cell.box.width,
+        cell.box.height,
+        0,
+        0,
+        SIZE,
+        SIZE
       );
+
+      // Convert to blob for XAI API
+      canvas.toBlob((blob) => {
+        if (blob) setImageBlob(blob);
+      }, "image/jpeg", 0.95);
     };
     img.src = imageSrc;
   }, [imageSrc, cell]);
 
+  // Fetch XAI data
+  const { data: xaiData, isLoading: xaiLoading } = useQuery({
+    queryKey: ["xai", cell.regionId, selectedClass],
+    queryFn: () => {
+      if (!imageBlob) return null;
+      // If we have a selected class name, find its index or pass undefined for top class
+      // Note: We don't have the full class list here, but we can assume the server knows.
+      // For simplicity, we just use the top class if selectedClass is null.
+      return fetchGradCAM(imageBlob);
+    },
+    enabled: showXai && !!imageBlob,
+    staleTime: 5 * 60 * 1000,
+  });
+
   return (
     <div
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm animate-in fade-in duration-200"
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-md animate-in fade-in duration-200"
       onClick={onClose}
     >
       <div
-        className="relative rounded-3xl border border-white/12 bg-white dark:bg-[#111118] p-5 shadow-2xl animate-in zoom-in-95 duration-300"
+        className="relative flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-[2rem] border border-white/12 bg-white dark:bg-[#0f0f16] shadow-2xl animate-in zoom-in-95 duration-300 md:flex-row"
         onClick={(e) => e.stopPropagation()}
       >
+        {/* Close Button */}
         <button
           type="button"
           onClick={onClose}
-          className="absolute -right-2 -top-2 z-10 inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/14 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-white shadow-md transition hover:bg-slate-200 dark:hover:bg-slate-700"
+          className="absolute right-4 top-4 z-20 inline-flex h-9 w-9 items-center justify-center rounded-full border border-black/8 dark:border-white/14 bg-white/80 dark:bg-slate-800/80 text-slate-700 dark:text-white shadow-md backdrop-blur-md transition hover:scale-110 hover:bg-white dark:hover:bg-slate-700"
         >
-          <X className="h-4 w-4" />
+          <X className="h-5 w-5" />
         </button>
-        <canvas
-          ref={canvasRef}
-          className="rounded-2xl border border-black/8 dark:border-white/10"
-          style={{ width: 320, height: 320 }}
-        />
-        <div className="mt-3 flex items-center justify-between px-1">
-          <span className="text-sm font-bold" style={{ color: getColor(cell.label) }}>
-            {cell.label}
-          </span>
-          <span className="text-xs text-slate-500 dark:text-slate-400">
-            Tin cậy: {formatPercent(cell.confidence)}
-          </span>
+
+        {/* Left: Image Viewer */}
+        <div className="relative flex flex-shrink-0 items-center justify-center bg-slate-100 p-6 dark:bg-black/40 md:w-[400px]">
+          <div className="relative h-80 w-80 overflow-hidden rounded-2xl border border-black/8 shadow-inner dark:border-white/10">
+            <canvas
+              ref={canvasRef}
+              className="h-full w-full"
+              style={{ width: 320, height: 320 }}
+            />
+            {/* Heatmap Overlay */}
+            {showXai && xaiData?.heatmap_b64 && (
+              <img
+                src={`data:image/png;base64,${xaiData.heatmap_b64}`}
+                alt="XAI Heatmap"
+                className="absolute inset-0 h-full w-full object-cover transition-opacity duration-300"
+                style={{ opacity }}
+              />
+            )}
+            {/* Loading Spinner */}
+            {xaiLoading && (
+              <div className="absolute inset-0 flex items-center justify-center bg-black/20 backdrop-blur-[2px]">
+                <Activity className="h-8 w-8 animate-pulse text-white" />
+              </div>
+            )}
+          </div>
+
+          {/* XAI Toggle Bar */}
+          <div className="absolute bottom-10 left-1/2 flex -translate-x-1/2 items-center gap-3 rounded-2xl bg-black/60 px-4 py-2.5 shadow-xl backdrop-blur-xl">
+            <button
+              onClick={() => setShowXai(!showXai)}
+              className={`flex items-center gap-2 rounded-lg px-3 py-1 text-xs font-bold transition ${
+                showXai
+                  ? "bg-emerald-500 text-white"
+                  : "bg-white/10 text-white hover:bg-white/20"
+              }`}
+            >
+              <Sparkles className="h-3.5 w-3.5" />
+              {showXai ? "Đang bật XAI" : "Bật XAI"}
+            </button>
+            {showXai && (
+              <input
+                type="range"
+                min="0"
+                max="1"
+                step="0.05"
+                value={opacity}
+                onChange={(e) => setOpacity(parseFloat(e.target.value))}
+                className="w-24 accent-emerald-500"
+              />
+            )}
+          </div>
         </div>
-        <p className="mt-1 text-[10px] text-slate-400">
-          Vùng #{cell.regionId} — {cell.box.width}×{cell.box.height}px
-        </p>
+
+        {/* Right: Info Panel */}
+        <div className="flex flex-1 flex-col overflow-auto p-8">
+          <div className="mb-6 flex items-start justify-between">
+            <div>
+              <h4 className="text-xs font-bold uppercase tracking-widest text-slate-400">
+                Thông tin tế bào {showXai && "(Kết quả XAI)"}
+              </h4>
+              <h2
+                className="text-3xl font-black"
+                style={{ color: getColor(showXai && xaiData?.top_class ? xaiData.top_class : cell.label) }}
+              >
+                {showXai && xaiData?.top_class ? xaiData.top_class : cell.label}
+              </h2>
+              <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                Vùng #{cell.regionId} — {cell.box.width}×{cell.box.height}px
+              </p>
+            </div>
+            <div className="text-right">
+              <div className="text-3xl font-black text-slate-900 dark:text-white">
+                {formatPercent(showXai && xaiData?.confidence !== undefined ? xaiData.confidence : cell.confidence)}
+              </div>
+              <div className="text-xs font-bold text-slate-400">ĐỘ TIN CẬY</div>
+            </div>
+          </div>
+
+          {/* Alert if XAI differs from Original */}
+          {showXai && xaiData && xaiData.top_class !== cell.label && (
+            <div className="mb-6 rounded-xl bg-amber-500/10 p-3 border border-amber-500/20 flex items-start gap-3">
+              <Activity className="h-4 w-4 text-amber-500 mt-0.5 shrink-0" />
+              <p className="text-[11px] text-amber-700 dark:text-amber-400 leading-tight">
+                <span className="font-bold">Lưu ý:</span> Kết quả XAI ({xaiData.top_class}) khác với nhận diện ban đầu ({cell.label}). 
+                Điều này thường xảy ra khi mô hình XAI tập trung sâu hơn vào các đặc điểm chi tiết của ảnh crop.
+              </p>
+            </div>
+          )}
+
+          {/* Probabilities Section */}
+
+          <div className="mb-6 flex-1 space-y-4">
+            <div className="flex items-center gap-2 border-b border-black/5 pb-2 dark:border-white/5">
+              <Layers className="h-4 w-4 text-slate-400" />
+              <h3 className="text-sm font-bold text-slate-700 dark:text-slate-200">
+                Xác suất phân loại {showXai && "(Đã hiệu chuẩn)"}
+              </h3>
+            </div>
+
+            <div className="space-y-3">
+              {(xaiData?.calibrated_probs
+                ? Object.entries(xaiData.calibrated_probs).sort(
+                    ([, a], [, b]) => b - a
+                  )
+                : [[cell.label, cell.confidence]]
+              ).map(([label, prob]) => (
+                <div key={label} className="group flex flex-col gap-1.5">
+                  <div className="flex items-center justify-between text-xs font-bold">
+                    <span className="text-slate-600 dark:text-slate-400">
+                      {label}
+                    </span>
+                    <span className="text-slate-900 dark:text-white">
+                      {formatPercent(prob as number)}
+                    </span>
+                  </div>
+                  <div className="h-2 overflow-hidden rounded-full bg-slate-100 dark:bg-white/5">
+                    <div
+                      className="h-full rounded-full transition-all duration-700"
+                      style={{
+                        width: `${(prob as number) * 100}%`,
+                        backgroundColor: getColor(label as string),
+                        opacity: label === cell.label ? 1 : 0.4,
+                      }}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* XAI Legend */}
+          {showXai && (
+            <div className="rounded-2xl bg-emerald-500/10 p-4 border border-emerald-500/20">
+              <div className="mb-2 flex items-center gap-2 text-emerald-600 dark:text-emerald-400">
+                <Info className="h-4 w-4" />
+                <span className="text-xs font-bold uppercase tracking-wider">
+                  Giải thích vùng quyết định
+                </span>
+              </div>
+              <p className="text-xs leading-relaxed text-slate-600 dark:text-slate-300">
+                Vùng màu <span className="font-bold text-red-500">đỏ/cam</span>{" "}
+                là những đặc điểm quan trọng nhất mà AI sử dụng để đưa ra quyết
+                định. Màu xanh biểu thị các vùng ít ảnh hưởng hơn.
+              </p>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
 }
+
 
 /* ------------------------------------------------------------------ */
 /*  Main component                                                     */

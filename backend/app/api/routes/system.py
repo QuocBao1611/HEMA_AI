@@ -61,7 +61,7 @@ def _build_lightweight_model_list() -> list:
         # best9 là unified model — giữ lại
         if model_path.stem == "best9":
             base_id = "best9"
-            display_name = "Best9 YOLO (unified)"
+            display_name = str(manifest_entry.get("display_name") or "YOLOv13")
             models.append({
                 "model_id": base_id,
                 "display_name": display_name,

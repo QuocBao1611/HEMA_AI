@@ -21,10 +21,10 @@ DEFAULT_CONFIDENCE_THRESHOLD = 0.5
 BEST9_CONFIDENCE_THRESHOLD   = 0.25   # WBC hiếm (EO/ERB/MO) cần ngưỡng thấp hơn
 DEFAULT_OVERLAP_RATIO = 0.25
 DEFAULT_MAX_REGIONS = 64   # Reduced from 144 to save RAM on Render Free Tier (512MB)
-DEFAULT_PADDING_RATIO = 0.10
+DEFAULT_PADDING_RATIO = 0.0
 DEFAULT_MIN_COMPONENT_AREA = 100  # ~18x18px — loại artifact bụi nhỏ, giữ PLT thật (~20-35px)
 DEFAULT_MAX_DETECTIONS = 300  # Increased for improved detector (Monitor RAM on Render Free Tier)
-DETECTION_MAX_DIMENSION = 1536
+DETECTION_MAX_DIMENSION = 2048  # Tăng từ 1536 để cải thiện detection PLT nhỏ trên ảnh hi-res
 MIN_COMPONENT_SIDE = 18  # PLT thật ≥ 20px/chiều; bụi artifact ≤ 12px
 
 DIAGNOSTIC_GROUP_BY_LABEL = {
@@ -62,6 +62,20 @@ def slugify_detector_id(path: Path) -> str:
     return path.stem.lower().replace(" ", "_").replace("(", "").replace(")", "")
 
 
+def compute_adaptive_padding(box_w: int, box_h: int) -> float:
+    """Tính padding ratio thích nghi theo kích thước tế bào, ôm sát biên để tránh nhiễu tế bào lân cận.
+
+    Nguyên tắc:
+    - Tế bào nhỏ (PLT ~20-35px): cần nhiều padding một chút để có ngữ cảnh nền.
+    - Tế bào lớn (WBC ~100-150px): ôm sát cực độ (2%) tránh viền tế bào hồng cầu bên cạnh lọt vào.
+    """
+    cell_size = max(box_w, box_h)
+    if cell_size < 35:   return 0.15   # PLT / hạt bào cực nhỏ (giảm từ 0.35 xuống 0.15)
+    if cell_size < 60:   return 0.10   # ERB, LY nhỏ, PLT lớn (giảm từ 0.22 xuống 0.10)
+    if cell_size < 100:  return 0.05   # LY trung bình, MO nhỏ (giảm từ 0.15 xuống 0.05)
+    return 0.02                         # WBC lớn (BNE, SNE, MO lớn) (giảm từ 0.10 xuống 0.02)
+
+
 def discover_detector_paths() -> list[Path]:
     """Chỉ scan .onnx files — không còn hỗ trợ .pt (ultralytics)."""
     paths = sorted(DETECTOR_MODELS_DIR.glob("*.onnx"))
@@ -79,7 +93,7 @@ def list_detector_models() -> list[dict[str, str]]:
     for path in discover_detector_paths():
         detector_id = slugify_detector_id(path)
         if detector_id in ("best_9", "best9"):
-            display_name = "Best9 YOLO (unified)"
+            display_name = "YOLOv13"
         elif detector_id == "blood_cell_best":
             display_name = "Blood Cell Detector (Improved)"
         else:
@@ -399,6 +413,90 @@ def build_candidate_mask(image_array: np.ndarray) -> np.ndarray:
     return mask
 
 
+def estimate_slide_background_color(image: Image.Image) -> tuple[int, int, int]:
+    """Ước lượng màu nền của slide ảnh bằng cách lấy trung vị của các pixel sáng nhất."""
+    small_img = image.resize((100, 100))
+    arr = np.array(small_img)
+    gray = arr.mean(axis=-1)
+    threshold = np.percentile(gray, 90)
+    bg_pixels = arr[gray >= threshold]
+    if len(bg_pixels) > 0:
+        median_color = np.median(bg_pixels, axis=0)
+        return tuple(map(int, median_color))
+    return (114, 114, 114)
+
+
+def tighten_box_to_cell(image: Image.Image, box: dict[str, Any]) -> dict[str, Any]:
+    """Co khít khung YOLO vào sát tế bào đích ở tâm bằng cách phân tích thành phần liên thông.
+    
+    Giúp loại bỏ viền của các hồng cầu lân cận ở bốn góc và khoảng trắng dư thừa.
+    """
+    x1, y1, x2, y2 = int(box["x1"]), int(box["y1"]), int(box["x2"]), int(box["y2"])
+    w = x2 - x1
+    h = y2 - y1
+    if w <= 20 or h <= 20:
+        return box
+
+    crop = image.crop((x1, y1, x2, y2))
+    crop_np = np.array(crop)
+    mask = build_candidate_mask(crop_np)
+
+    num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(mask)
+    if num_labels <= 1:
+        return box
+
+    cx, cy = w / 2, h / 2
+    best_idx = -1
+    min_dist = float("inf")
+
+    for i in range(1, num_labels):
+        stat = stats[i]
+        if stat[cv2.CC_STAT_AREA] < max(100, int(w * h * 0.05)):
+            continue
+
+        bx1 = stat[cv2.CC_STAT_LEFT]
+        by1 = stat[cv2.CC_STAT_TOP]
+        bw = stat[cv2.CC_STAT_WIDTH]
+        bh = stat[cv2.CC_STAT_HEIGHT]
+        bx2 = bx1 + bw
+        by2 = by1 + bh
+
+        centroid = centroids[i]
+        dist = np.sqrt((centroid[0] - cx)**2 + (centroid[1] - cy)**2)
+
+        is_containing_center = (bx1 <= cx <= bx2) and (by1 <= cy <= by2)
+        if is_containing_center:
+            dist = dist * 0.1
+
+        if dist < min_dist:
+            min_dist = dist
+            best_idx = i
+
+    if best_idx != -1:
+        stat = stats[best_idx]
+        bx1 = stat[cv2.CC_STAT_LEFT]
+        by1 = stat[cv2.CC_STAT_TOP]
+        bw = stat[cv2.CC_STAT_WIDTH]
+        bh = stat[cv2.CC_STAT_HEIGHT]
+
+        if bw > int(w * 0.40) and bh > int(h * 0.40):
+            new_x1 = max(0, x1 + bx1)
+            new_y1 = max(0, y1 + by1)
+            new_x2 = min(image.width, x1 + bx1 + bw)
+            new_y2 = min(image.height, y1 + by1 + bh)
+
+            if (new_x2 - new_x1) * (new_y2 - new_y1) < w * h:
+                return {
+                    **box,
+                    "x1": new_x1,
+                    "y1": new_y1,
+                    "x2": new_x2,
+                    "y2": new_y2,
+                }
+
+    return box
+
+
 def extract_connected_components(mask: np.ndarray) -> list[dict[str, int]]:
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
@@ -442,6 +540,54 @@ def expand_box_xyxy(
     )
 
 
+def crop_with_symmetrical_padding(
+    image: Image.Image,
+    box: tuple[int, int, int, int],
+    padding_ratio: float,
+    fill_color: tuple[int, int, int] = (114, 114, 114),
+) -> Image.Image:
+    """Cắt ảnh tế bào với padding đối xứng.
+    Nếu tế bào ở biên bị cắt (out-of-bounds), phần bị thiếu sẽ được đệm thêm màu xám trung tính 114
+    để giữ tế bào luôn nằm chính giữa khung hình, tránh làm lệch tâm tế bào khi đưa vào model phân loại.
+    """
+    x1, y1, x2, y2 = box
+    width = x2 - x1
+    height = y2 - y1
+    pad_x = max(1, int(round(width * padding_ratio)))
+    pad_y = max(1, int(round(height * padding_ratio)))
+
+    # Tọa độ lý thuyết (có thể vượt biên ảnh)
+    tx1 = x1 - pad_x
+    ty1 = y1 - pad_y
+    tx2 = x2 + pad_x
+    ty2 = y2 + pad_y
+
+    # Tọa độ thực tế nằm trong biên ảnh
+    cx1 = max(0, tx1)
+    cy1 = max(0, ty1)
+    cx2 = min(image.width, tx2)
+    cy2 = min(image.height, ty2)
+
+    # Cắt phần hợp lệ
+    cropped = image.crop((cx1, cy1, cx2, cy2))
+
+    # Tính toán khoảng cần bù thêm do vượt biên
+    pad_left = cx1 - tx1
+    pad_top = cy1 - ty1
+    pad_right = tx2 - cx2
+    pad_bottom = ty2 - cy2
+
+    if pad_left > 0 or pad_top > 0 or pad_right > 0 or pad_bottom > 0:
+        # Tạo canvas mới kích thước lý thuyết và dán ảnh crop vào
+        target_w = tx2 - tx1
+        target_h = ty2 - ty1
+        canvas = Image.new("RGB", (target_w, target_h), fill_color)
+        canvas.paste(cropped, (pad_left, pad_top))
+        return canvas
+
+    return cropped
+
+
 def box_to_xywh(box: dict[str, int]) -> dict[str, int]:
     return {
         "x": int(box["x1"]),
@@ -482,52 +628,28 @@ def detect_cell_boxes(
     total_pixels = detection_image.width * detection_image.height
     total_img_pixels = image.width * image.height  # tính sẵn ra ngoài vòng lặp
 
-    # Bước 2: Contour detection (ĐÃ VÔ HIỆU HÓA để tránh nhiễu hộp trống #2, ưu tiên YOLO)
-    mask = None
-    components = []
-
-    adaptive_min_area = max(int(min_component_area), max(300, int(total_pixels * 0.0004)))
-    adaptive_max_area = int(total_pixels * 0.25)
-
-    for component in components:
-        rect_area = component.get("rect_area", component["area"])
-        if rect_area < adaptive_min_area or rect_area > adaptive_max_area:
-            continue
-        if component["width"] < MIN_COMPONENT_SIDE or component["height"] < MIN_COMPONENT_SIDE:
-            continue
-        aspect_ratio = max(
-            component["width"] / float(component["height"]),
-            component["height"] / float(component["width"]),
-        )
-        if aspect_ratio > 4.5:
-            continue
-
-        raw_boxes.append(
-            {
-                "x1": int(round(component["x1"] / scale)),
-                "y1": int(round(component["y1"] / scale)),
-                "x2": int(round(component["x2"] / scale)),
-                "y2": int(round(component["y2"] / scale)),
-                "score": 0.4,  # Điểm tin cậy thấp cho thuật toán truyền thống
-            }
-        )
-
-    t1 = time.perf_counter()
-
-    # Bước 3: YOLO ONNX inference trên ảnh đã resize
+    # Bước 2: YOLO ONNX inference trên ảnh đã resize trước tiên
     yolo_session = initialize_detection_runtime(detector_model_id)
     image_np = image_to_rgb_array(detection_image)
     tensor, meta = _yolo_preprocess(image_np, imgsz=640)
     input_name = yolo_session.get_inputs()[0].name
     outputs = yolo_session.run(None, {input_name: tensor})
-    # Sử dụng đúng ngưỡng tin cậy từ UI truyền xuống
-    yolo_boxes = _yolo_postprocess(outputs, meta, conf_thres=confidence_threshold, iou_thres=0.45)
+    # Ngưỡng 0.20 để align với NMS score_threshold=0.25, giảm false positive từ ảnh nhiễu
+    # (Trước đây 0.15 tạo nhiều box rác phải lọc lại ở NMS, ảnh hưởng hiệu suất và chính xác)
+    yolo_conf_threshold = 0.20
+    yolo_boxes = _yolo_postprocess(outputs, meta, conf_thres=yolo_conf_threshold, iou_thres=0.45)
 
     for box in yolo_boxes:
         area = (box["x2"] - box["x1"]) * (box["y2"] - box["y1"])
         if area < min_component_area:
             continue
-        if area > total_pixels * 0.25:
+        # Cho ảnh nhỏ (<= 640px), cho phép box chiếm tới 90% ảnh
+        # Cho ảnh lớn, giới hạn 25% để tránh box quá to
+        if max(detection_image.width, detection_image.height) <= 640:
+            max_yolo_area = int(total_pixels * 0.90)
+        else:
+            max_yolo_area = int(total_pixels * 0.25)
+        if area > max_yolo_area:
             continue
         # Scale bbox từ detection_image (resize) về kích thước ảnh gốc
         raw_boxes.append(
@@ -540,6 +662,46 @@ def detect_cell_boxes(
             }
         )
 
+    # Co khít toàn bộ hộp thô phát hiện được để bám sát tế bào thực tế
+    raw_boxes = [tighten_box_to_cell(image, b) for b in raw_boxes]
+
+    t1 = time.perf_counter()
+
+    # Bước 3: Contour detection làm fallback (chỉ chạy khi YOLO không detect được hộp nào)
+    if not raw_boxes:
+        mask = build_candidate_mask(image_array)
+        components = extract_connected_components(mask)
+
+        adaptive_min_area = max(int(min_component_area), max(300, int(total_pixels * 0.0004)))
+        # Cho ảnh nhỏ (<= 640px), cho phép box chiếm tới 90% ảnh
+        # Cho ảnh lớn, giới hạn 25% để tránh box quá to
+        if max(detection_image.width, detection_image.height) <= 640:
+            adaptive_max_area = int(total_pixels * 0.90)
+        else:
+            adaptive_max_area = int(total_pixels * 0.25)
+
+        for component in components:
+            rect_area = component.get("rect_area", component["area"])
+            if rect_area < adaptive_min_area or rect_area > adaptive_max_area:
+                continue
+            if component["width"] < MIN_COMPONENT_SIDE or component["height"] < MIN_COMPONENT_SIDE:
+                continue
+            aspect_ratio = max(
+                component["width"] / float(component["height"]),
+                component["height"] / float(component["width"]),
+            )
+            if aspect_ratio > 4.5:
+                continue
+
+            raw_boxes.append(
+                {
+                    "x1": int(round(component["x1"] / scale)),
+                    "y1": int(round(component["y1"] / scale)),
+                    "x2": int(round(component["x2"] / scale)),
+                    "y2": int(round(component["y2"] / scale)),
+                    "score": 0.4,  # Điểm tin cậy thấp cho thuật toán truyền thống
+                }
+            )
 
     t2 = time.perf_counter()
 
@@ -552,8 +714,9 @@ def detect_cell_boxes(
             [b["x1"], b["y1"], b["x2"] - b["x1"], b["y2"] - b["y1"]] for b in raw_boxes
         ]
         nms_scores = [float(b["score"]) for b in raw_boxes]  # Score chuẩn từ model
-        # Dùng nms_threshold thấp (0.3) để lọc các box chồng lấn tốt hơn
-        indices = cv2.dnn.NMSBoxes(nms_input_boxes, nms_scores, score_threshold=0.25, nms_threshold=0.3)
+        # IoU threshold 0.40 (tăng từ 0.30): tránh merge WBC chạm nhau trên slide dày đặc
+        # (Hai WBC chạm nhau thường có IoU=0.35-0.45, dưới 0.30 chúng bị merge thành 1 box)
+        indices = cv2.dnn.NMSBoxes(nms_input_boxes, nms_scores, score_threshold=0.25, nms_threshold=0.40)
         kept_boxes = [raw_boxes[i] for i in (indices.flatten() if len(indices) else [])]
     else:
         kept_boxes = []
@@ -628,25 +791,77 @@ def aggregate_prediction_buckets(buckets: dict[Any, dict[str, Any]], total_count
 # Temperature Scaling (T=0.511) được áp dụng tự động trong
 # OnnxClassifierAdapter.predict() cho model blood_cell_final.
 # Xem classifier_service.py _TEMPERATURE_MAP và _apply_temperature_scaling.
+def check_crop_has_nucleus(crop: Image.Image) -> bool:
+    """Kiểm tra xem ảnh crop tế bào có chứa nhân (vùng sẫm màu) hay không.
+    Mặc định, nhân tế bào bạch cầu/hồng cầu non (ERB) nhuộm màu tím sẫm (mật độ màu tối).
+    Hồng cầu trưởng thành (RBC) không nhân và chỉ có màu hồng sáng.
+    """
+    arr = np.array(crop.convert("RGB"))
+    # Loại bỏ vùng đệm màu xám YOLO (114, 114, 114) nếu có
+    is_pad = (arr[:, :, 0] == 114) & (arr[:, :, 1] == 114) & (arr[:, :, 2] == 114)
+    cell_pixels = arr[~is_pad]
+    
+    if cell_pixels.size == 0:
+        return False
+        
+    gray = cell_pixels.mean(axis=-1)
+    p5 = np.percentile(gray, 5)
+    return p5 < 115.0
+
+
 def summarize_slide_count(
     predictions: np.ndarray,
     boxes: list[dict[str, int]],
     confidence_threshold: float,
     classifier: LoadedClassifier,
+    image_width: int,
+    image_height: int,
+    crops: list[Image.Image] | None = None,
 ) -> dict[str, Any]:
     cells: list[dict[str, Any]] = []
     raw_buckets: dict[int, dict[str, Any]] = {}
     grouped_buckets: dict[str, dict[str, Any]] = {}
 
-    for cell_index, (vector, box) in enumerate(zip(predictions, boxes, strict=False), start=1):
+    cell_id_counter = 1
+    for idx, (vector, box) in enumerate(zip(predictions, boxes, strict=False)):
         ranked = vector_to_prediction_items(vector, classifier.class_names)
         best = ranked[0]
+        
+        # Nếu phân loại thành bạch cầu hoặc hồng cầu non nhưng ảnh crop không chứa nhân sẫm màu
+        if crops and idx < len(crops) and best["raw_label"] in {"BA", "BNE", "EO", "ERB", "IG", "LY", "MMY", "MO", "MY", "MYO", "PMY", "SNE"}:
+            if not check_crop_has_nucleus(crops[idx]):
+                rbc_item = next((item for item in ranked if item["raw_label"] == "RBC"), None)
+                if rbc_item:
+                    best = rbc_item.copy()
+                    best["confidence"] = max(ranked[0]["confidence"], 0.75)
+        
+        # Lọc tế bào chạm biên nếu đoán thành WBC/ERB -> chuyển sang RBC (tránh tự tin ảo ở rìa ảnh)
+        # Chỉ áp dụng nếu ảnh đủ lớn (không phải ảnh test đã crop sẵn) và kích thước box nhỏ (không phải WBC thật)
+        is_border = (
+            box["x1"] <= 3 or 
+            box["y1"] <= 3 or 
+            box["x2"] >= image_width - 3 or 
+            box["y2"] >= image_height - 3
+        )
+        box_w = box["x2"] - box["x1"]
+        box_h = box["y2"] - box["y1"]
+        # Threshold 40px: chỉ PLT/hạt thực sự nhỏ bị force RBC ở biên.
+        # 75px cũ quá rộng: LY (50-80px), MO (60-100px) bị sai lầm chuyển thành RBC.
+        is_small_cell = (box_w <= 40 and box_h <= 40)
+        is_real_slide = (image_width > 350 and image_height > 350)
+        
+        if is_border and is_real_slide and is_small_cell and best["raw_label"] in {"BA", "BNE", "EO", "ERB", "IG", "LY", "MMY", "MO", "MY", "MYO", "PMY", "SNE"}:
+            rbc_item = next((item for item in ranked if item["raw_label"] == "RBC"), None)
+            if rbc_item:
+                best = rbc_item.copy()
+                best["confidence"] = max(ranked[0]["confidence"], 0.51)  # Giữ độ tự tin cao để ko bị lọc dưới threshold
+            
         # Temperature Scaling đã được áp dụng trong OnnxClassifierAdapter.predict()
         grouped_label = DIAGNOSTIC_GROUP_BY_LABEL.get(best["raw_label"], best["raw_label"])
         counted = best["confidence"] >= confidence_threshold
 
         cell_item = {
-            "cell_id": cell_index,
+            "cell_id": cell_id_counter,
             "box": box_to_xywh(box),
             "crop_size": {"width": int(box["x2"] - box["x1"]), "height": int(box["y2"] - box["y1"])},
             "label": best["label"],
@@ -658,6 +873,7 @@ def summarize_slide_count(
             "top_predictions": ranked[:3],
         }
         cells.append(cell_item)
+        cell_id_counter += 1
 
         if not counted:
             continue
@@ -741,32 +957,54 @@ def prepare_slide_count_candidates(
     detector_model_id: str | None = None,
     classifier: LoadedClassifier | None = None,
 ) -> tuple[list[dict[str, int]], list[Image.Image], bool]:
-    boxes = detect_cell_boxes(
-        image,
-        min_component_area=min_component_area,
-        max_detections=max_detections,
-        confidence_threshold=confidence_threshold,
-        detector_model_id=detector_model_id,
-    )
     fallback_used = False
-    # Use the provided classifier's input shape for fallback check
-    # Avoid calling get_classifier_registry() which loads ALL models
-    if classifier is not None:
-        max_width = classifier.input_width
-        max_height = classifier.input_height
-    else:
-        max_width = 640
-        max_height = 640
-    if not boxes and image.width <= int(max_width * 1.5) and image.height <= int(max_height * 1.5):
+    
+    # Nếu ảnh nhỏ (<= 300px ở cả 2 chiều) → bỏ qua detection, đưa thẳng cho classifier
+    # Vì ảnh nhỏ thường là ảnh đã crop sẵn 1 tế bào, detection chỉ gây nhiễu
+    if image.width <= 300 and image.height <= 300:
         boxes = [{"x1": 0, "y1": 0, "x2": image.width, "y2": image.height, "area": image.width * image.height}]
         fallback_used = True
+    else:
+        boxes = detect_cell_boxes(
+            image,
+            min_component_area=min_component_area,
+            max_detections=max_detections,
+            confidence_threshold=confidence_threshold,
+            detector_model_id=detector_model_id,
+        )
+        # Nếu detection không tìm thấy box nào → coi cả ảnh là 1 candidate duy nhất
+        if not boxes:
+            boxes = [{"x1": 0, "y1": 0, "x2": image.width, "y2": image.height, "area": image.width * image.height}]
+            fallback_used = True
 
     crops = []
+    kept_boxes = []
+    
+    from backend.app.services.classifier_service import is_background_crop
+    
+    # Ước lượng màu nền của slide ảnh thực tế
+    slide_bg_color = estimate_slide_background_color(image)
+    
     for box in boxes:
-        # Áp dụng padding khi crop để model phân loại có đủ context
-        eb = expand_box_xyxy((box["x1"], box["y1"], box["x2"], box["y2"]), padding_ratio, image.size)
-        crops.append(image.crop(eb))
-    return boxes, crops, fallback_used
+        # Adaptive padding: tế bào nhỏ (PLT) cần nhiều context hơn tế bào lớn (WBC)
+        box_w = box["x2"] - box["x1"]
+        box_h = box["y2"] - box["y1"]
+        # Cho phép người dùng ghi đè hoàn toàn tỷ lệ padding nếu được đặt cụ thể (> 0.0)
+        effective_padding = padding_ratio if padding_ratio > 0.0 else compute_adaptive_padding(box_w, box_h)
+        crop = crop_with_symmetrical_padding(
+            image, 
+            (box["x1"], box["y1"], box["x2"], box["y2"]), 
+            effective_padding,
+            fill_color=slide_bg_color
+        )
+
+        # Bỏ qua các khung rác hoặc mảnh viền tế bào quá nhỏ (chỉ chứa trên 95% nền trắng)
+        # Giữ các tế bào nằm một phần lớn ở biên
+        if not is_background_crop(crop):
+            crops.append(crop)
+            kept_boxes.append(box)
+
+    return kept_boxes, crops, fallback_used
 
 
 def run_slide_count_analysis(
@@ -790,7 +1028,11 @@ def run_slide_count_analysis(
         classifier=classifier,
     )
     predictions = run_batch_prediction(crops, classifier)
-    summary = summarize_slide_count(predictions, boxes, confidence_threshold, classifier)
+    summary = summarize_slide_count(
+        predictions, boxes, confidence_threshold, classifier,
+        image_width=image.width, image_height=image.height,
+        crops=crops
+    )
 
     return {
         "mode": "analyze",
@@ -839,6 +1081,7 @@ def build_comparison_entry(result: dict[str, Any]) -> dict[str, Any]:
         "top_group_label": grouped_counts[0].get("label") if grouped_counts else None,
         "top_group_count": grouped_counts[0].get("count") if grouped_counts else 0,
         "fallback_used": result.get("fallback_used", False),
+        "execution_time_ms": result.get("execution_time_ms", 0.0),
     }
 
 
@@ -875,7 +1118,10 @@ def run_model_comparison(
     model_results: list[dict[str, Any]] = []
     comparison_rows: list[dict[str, Any]] = []
 
+    import time
+
     for model_id in model_ids:
+        t_model_start = time.perf_counter()
         try:
             classifier = get_classifier(model_id)
 
@@ -889,7 +1135,11 @@ def run_model_comparison(
                 result["note"] = "Unified model uses its own built-in detection and classification."
             else:
                 predictions = run_batch_prediction(crops, classifier)
-                summary = summarize_slide_count(predictions, boxes, confidence_threshold, classifier)
+                summary = summarize_slide_count(
+                    predictions, boxes, confidence_threshold, classifier,
+                    image_width=image.width, image_height=image.height,
+                    crops=crops
+                )
                 result = {
                     "mode": "analyze",
                     "analysis_mode": "slide_count",
@@ -910,6 +1160,8 @@ def run_model_comparison(
                     **summary,
                 }
 
+            # Lưu tốc độ chạy của model này (ms)
+            result["execution_time_ms"] = (time.perf_counter() - t_model_start) * 1000
             model_results.append(result)
             comparison_rows.append(build_comparison_entry(result))
 
@@ -1028,8 +1280,16 @@ def run_yolo_unified_analysis(
     raw_buckets: dict[int, dict[str, Any]] = {}
     grouped_buckets: dict[int, dict[str, Any]] = {}
 
-    for cell_index, d in enumerate(onnx_result["detections"], start=1):
+    cell_id_counter = 1
+    for d in onnx_result["detections"]:
         x1, y1, x2, y2 = d["bbox"]
+        
+        # Kiểm tra xem vùng tế bào có bị cắt góc nghiêm trọng (trở thành nền trống) hay không
+        crop = image.crop((int(x1), int(y1), int(x2), int(y2)))
+        from backend.app.services.classifier_service import is_background_crop
+        if is_background_crop(crop):
+            continue
+
         conf = d["score"]
         cls = d["class_id"]
         probs = d["probs"]
@@ -1038,6 +1298,42 @@ def run_yolo_unified_analysis(
             continue
 
         raw_label = class_names[cls]
+        
+        # Nếu được nhận diện là bạch cầu hoặc hồng cầu non nhưng crop không hề chứa nhân tế bào sẫm màu
+        if raw_label in {"BA", "BNE", "EO", "ERB", "IG", "LY", "MMY", "MO", "MY", "MYO", "PMY", "SNE"}:
+            if not check_crop_has_nucleus(crop):
+                rbc_cls = class_names.index("RBC")
+                cls = rbc_cls
+                raw_label = "RBC"
+                conf = max(conf, 0.75)
+                new_probs = np.zeros(nc, dtype=np.float32)
+                new_probs[rbc_cls] = conf
+                probs = new_probs
+        
+        # Kiểm tra chạm biên đối với model unified YOLO -> chuyển sang RBC (tránh tự tin ảo ở rìa ảnh)
+        # Chỉ áp dụng nếu ảnh đủ lớn (không phải ảnh test đã crop sẵn) và kích thước box nhỏ (không phải WBC thật)
+        is_border = (
+            x1 <= 3 or 
+            y1 <= 3 or 
+            x2 >= image.width - 3 or 
+            y2 >= image.height - 3
+        )
+        box_w = x2 - x1
+        box_h = y2 - y1
+        # Đồng bộ với summarize_slide_count: chỉ force RBC cho PLT thực sự nhỏ (≤40px)
+        is_small_cell = (box_w <= 40 and box_h <= 40)
+        is_real_slide = (image.width > 350 and image.height > 350)
+        
+        if is_border and is_real_slide and is_small_cell and raw_label in {"BA", "BNE", "EO", "ERB", "IG", "LY", "MMY", "MO", "MY", "MYO", "PMY", "SNE"}:
+            rbc_cls = class_names.index("RBC")
+            cls = rbc_cls
+            raw_label = "RBC"
+            conf = max(conf, 0.51)
+            # Tạo vector xác suất mới có RBC chiếm ưu thế
+            new_probs = np.zeros(nc, dtype=np.float32)
+            new_probs[rbc_cls] = conf
+            probs = new_probs
+            
         grouped_label = DIAGNOSTIC_GROUP_BY_LABEL.get(raw_label, raw_label)
         _count_thresh = BEST9_CONFIDENCE_THRESHOLD if confidence_threshold <= 0.0 else confidence_threshold
         counted = conf >= _count_thresh
@@ -1046,7 +1342,7 @@ def run_yolo_unified_analysis(
         ranked = vector_to_prediction_items(np.array(probs), class_names)
 
         cell_item = {
-            "cell_id": cell_index,
+            "cell_id": cell_id_counter,
             "box": {"x": int(x1), "y": int(y1), "width": max(1, int(x2 - x1)), "height": max(1, int(y2 - y1))},
             "crop_size": {"width": max(1, int(x2 - x1)), "height": max(1, int(y2 - y1))},
             "label": raw_label,
@@ -1058,6 +1354,7 @@ def run_yolo_unified_analysis(
             "top_predictions": ranked[:3],
         }
         cells.append(cell_item)
+        cell_id_counter += 1
 
         if not counted:
             continue
@@ -1097,7 +1394,7 @@ def run_yolo_unified_analysis(
         "mode": "analyze",
         "analysis_mode": "slide_count",
         "selected_model_id": "best9",
-        "selected_model_name": "Best9 YOLO (unified)",
+        "selected_model_name": "YOLOv13",
         "input_shape": [640, 640, 3],
         "preprocessing": "yolo_detect",
         "filename": filename,
@@ -1109,7 +1406,7 @@ def run_yolo_unified_analysis(
         "fallback_used": False,
         "analysis_method": "Single-pass YOLO detection with built-in 14-class cell labels",
         "count_unit": "detected cells",
-        "note": "Best9 YOLO phát hiện và phân loại tế bào trong một lần chạy duy nhất (unified detect+classify).",
+        "note": "YOLOv13 phát hiện và phân loại tế bào trong một lần chạy duy nhất (unified detect+classify).",
         "analyzed_region_count": len(cells),
         "detected_region_count": classified_cell_count,
         "detected_cell_count": len(cells),

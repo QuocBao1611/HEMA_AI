@@ -142,6 +142,13 @@ function recomputeCounts(
 const OPTIMAL_PARAMS: Record<string, Partial<AnalysisFormValues>> = {
   // MobileNet (model tự train, 2 bước: detect rồi crop + classify)
   // Cần confidence cao hơn để lọc FP, padding lớn hơn để crop đủ ngữ cảnh
+  blood_cell_v4: {
+    confidence_threshold: 0.25,
+    max_detections: 300,
+    padding_ratio: 0.0,
+    min_component_area: 100,
+  },
+
   mobilenet_blood_cell: {
     confidence_threshold: 0.35,
     max_detections: 300,
@@ -773,9 +780,6 @@ export function AnalysisWorkspace() {
               <label className="block space-y-2">
                 <span className="text-sm font-medium text-slate-800 dark:text-slate-200">
                   Ngưỡng tin cậy
-                  {currentOptimal && currentValues.confidence_threshold === currentOptimal.confidence_threshold && (
-                    <span className="ml-2 text-[10px] font-bold text-emerald-600 bg-emerald-100 dark:bg-emerald-900/30 dark:text-emerald-400 px-1.5 py-0.5 rounded uppercase tracking-wider">(Tối ưu)</span>
-                  )}
                 </span>
                 <input
                   type="number"
@@ -790,9 +794,6 @@ export function AnalysisWorkspace() {
               <label className="block space-y-2">
                 <span className="text-sm font-medium text-slate-800 dark:text-slate-200">
                   Giới hạn phát hiện
-                  {currentOptimal && currentValues.max_detections === currentOptimal.max_detections && (
-                    <span className="ml-2 text-[10px] font-bold text-emerald-600 bg-emerald-100 dark:bg-emerald-900/30 dark:text-emerald-400 px-1.5 py-0.5 rounded uppercase tracking-wider">(Tối ưu)</span>
-                  )}
                 </span>
                 <input
                   type="number"
@@ -803,29 +804,15 @@ export function AnalysisWorkspace() {
                 />
               </label>
 
-              <label className="block space-y-2">
-                <span className="text-sm font-medium text-slate-800 dark:text-slate-200">
-                  Tỷ lệ viền đệm (Padding)
-                  {currentOptimal && currentValues.padding_ratio === currentOptimal.padding_ratio && (
-                    <span className="ml-2 text-[10px] font-bold text-emerald-600 bg-emerald-100 dark:bg-emerald-900/30 dark:text-emerald-400 px-1.5 py-0.5 rounded uppercase tracking-wider">(Tối ưu)</span>
-                  )}
-                </span>
-                <input
-                  type="number"
-                  step="0.05"
-                  min="0"
-                  max="1"
-                  className="h-12 w-full rounded-2xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-slate-950/60 px-4 text-sm font-medium text-slate-900 dark:text-white shadow-sm outline-none transition-all hover:border-red-300 focus:border-red-500 focus:ring-2 focus:ring-red-500/20 dark:hover:border-white/20 dark:focus:border-red-400"
-                  {...form.register("padding_ratio", { valueAsNumber: true })}
-                />
-              </label>
+              {/* Ẩn tỷ lệ viền đệm để tinh giản UI, giá trị mặc định được tự động đồng bộ */}
+              <input
+                type="hidden"
+                {...form.register("padding_ratio", { valueAsNumber: true })}
+              />
 
               <label className="block space-y-2">
                 <span className="text-sm font-medium text-slate-800 dark:text-slate-200">
                   Kích thước tối thiểu (Lọc bụi)
-                  {currentOptimal && currentValues.min_component_area === currentOptimal.min_component_area && (
-                    <span className="ml-2 text-[10px] font-bold text-emerald-600 bg-emerald-100 dark:bg-emerald-900/30 dark:text-emerald-400 px-1.5 py-0.5 rounded uppercase tracking-wider">(Tối ưu)</span>
-                  )}
                 </span>
                 <input
                   type="number"
@@ -866,6 +853,7 @@ export function AnalysisWorkspace() {
             <AnalysisProgressBar 
               isPending={analyzeMutation.isPending} 
               isUnified={availableModels.find((m) => m.model_id === selectedModel)?.unified ?? false}
+              modelName={currentModelName}
             />
             {!selectedFile ? (
               <p className="mt-3 text-center text-xs font-medium text-slate-500 dark:text-slate-400">

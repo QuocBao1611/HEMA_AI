@@ -154,7 +154,7 @@ def sync_model_catalog() -> tuple[bool, str | None]:
             base_id = "best9"
         display_name = str(manifest_entry.get("display_name") or model_path.stem.replace("_", " "))
         if base_id == "best9":
-            display_name = "Best9 YOLO (unified)"
+            display_name = str(manifest_entry.get("display_name") or "YOLOv13")
         catalog_entries.append({
             "model_id": base_id,
             "display_name": display_name,

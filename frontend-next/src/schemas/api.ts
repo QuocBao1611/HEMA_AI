@@ -14,6 +14,7 @@ export const modelSummarySchema = z.object({
   input_shape: z.array(z.number()),
   num_classes: z.number(),
   preprocessing: z.string(),
+  unified: z.boolean().optional(),
 });
 
 export const clinicalFlagRuleSchema = z.object({
@@ -199,9 +200,10 @@ export const compareRowSchema = z.object({
   average_confidence: z.number(),
   average_region_confidence: z.number(),
   dominant_label: z.string(),
-  top_group_label: z.string(),
+  top_group_label: z.string().nullable(),
   top_group_count: z.number(),
   fallback_used: z.boolean(),
+  execution_time_ms: z.number().optional(),
 });
 
 export const sharedDetectionSummarySchema = z.object({
@@ -221,6 +223,7 @@ export const compareModelsResponseSchema = z.object({
   comparison_rows: z.array(compareRowSchema),
   best_by_average_confidence: compareRowSchema.nullable(),
   best_by_detected_cells: compareRowSchema.nullable(),
+  models: z.array(analyzeResponseSchema).optional(),
   note: z.string(),
 });
 

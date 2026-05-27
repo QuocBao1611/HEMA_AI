@@ -1,15 +1,13 @@
-# Core ML - ONNX Runtime (lightweight, no GPU needed for inference)
-onnxruntime==1.21.0
-
 # Web framework
 fastapi==0.135.1
 uvicorn[standard]==0.41.0
 
-# Image processing
+# Image processing & Machine Learning
 pillow==12.1.1
 python-multipart==0.0.22
-numpy==1.26.4
-opencv-python-headless==4.9.0.80
+onnxruntime==1.21.0
+onnx>=1.15.0
+opencv-python-headless>=4.8.0.80
 
 # Database
 SQLAlchemy==2.0.43

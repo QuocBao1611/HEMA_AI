@@ -35,9 +35,8 @@ RESAMPLING = getattr(Image, "Resampling", Image)
 
 
 # ── Temperature Scaling constants ──────────────────────────────────────────
-# Hệ số hiệu chuẩn T = 0.5204 được áp dụng cho bản Final để duy trì 
-# tính tin cậy đồng nhất trên các nền tảng triển khai.
 _TEMPERATURE_MAP: dict[str, float] = {
+    "blood_cell_v4": 1.35,
     "mobilenet_final": 0.5204,
     "mobilenet_blood_cell": 0.5204,
     "mobilenetv2_blood_cell_final": 0.5204,
@@ -167,10 +166,18 @@ def discover_model_paths() -> list[Path]:
             discovered.append(path)
 
     if DETECTOR_MODELS_DIR.exists():
+        manifest = load_model_manifest()
         for path in sorted(DETECTOR_MODELS_DIR.glob("*.onnx")):
             if "_sanitized" in path.stem:
                 continue
-            discovered.append(path)
+            manifest_entry = manifest.get(path.name, {})
+            is_unified = (
+                path.stem in ("best9", "best_9") or
+                manifest_entry.get("unified", False) or
+                "yolo" in str(manifest_entry.get("preprocessing", "")).lower()
+            )
+            if is_unified:
+                discovered.append(path)
 
     if not discovered:
         raise RuntimeError(
@@ -295,10 +302,13 @@ def _load_onnx_classifier(model_path: Path, manifest_entry: dict[str, Any]) -> L
         input_height = int(configured_shape[0])
         input_width  = int(configured_shape[1])
     else:
-        # NHWC: [batch, H, W, C] — index 1,2
         try:
-            input_height = int(raw_in_shape[1]) if not isinstance(raw_in_shape[1], str) else 224
-            input_width  = int(raw_in_shape[2]) if not isinstance(raw_in_shape[2], str) else 224
+            if len(raw_in_shape) == 4 and (raw_in_shape[1] == 3 or str(raw_in_shape[1]).lower() in ('3', 'c', 'channel', 'channels')):
+                input_height = int(raw_in_shape[2]) if not isinstance(raw_in_shape[2], str) else 224
+                input_width  = int(raw_in_shape[3]) if not isinstance(raw_in_shape[3], str) else 224
+            else:
+                input_height = int(raw_in_shape[1]) if not isinstance(raw_in_shape[1], str) else 224
+                input_width  = int(raw_in_shape[2]) if not isinstance(raw_in_shape[2], str) else 224
         except (IndexError, ValueError):
             input_height, input_width = 224, 224
 
@@ -321,7 +331,7 @@ def _load_onnx_classifier(model_path: Path, manifest_entry: dict[str, Any]) -> L
 
     display_name = str(manifest_entry.get("display_name") or model_path.stem.replace("_", " "))
     if base_id == "best9":
-        display_name = "Best9 YOLO (unified)"
+        display_name = "YOLOv13"
 
     return LoadedClassifier(
         model_id=base_id,
@@ -377,10 +387,15 @@ def initialize_classifier_registry() -> tuple[dict[str, LoadedClassifier], str]:
 
     _CLASSIFIER_REGISTRY = registry
     _DEFAULT_MODEL_ID = (
-        "mobilenet_final" if "mobilenet_final" in registry
+        "blood_cell_v5" if "blood_cell_v5" in registry
+        else ("blood_cell_v4" if "blood_cell_v4" in registry
+        else ("mobilenet_blood_cell_v2" if "mobilenet_blood_cell_v2" in registry
+        else ("mobilenet_phase9" if "mobilenet_phase9" in registry
+        else ("mobilenet_final" if "mobilenet_final" in registry
         else ("mobilenet_blood_cell" if "mobilenet_blood_cell" in registry
-        else ("mobilenetv2_phase2_best" if "mobilenetv2_phase2_best" in registry else next(iter(registry))))
+        else ("mobilenetv2_phase2_best" if "mobilenetv2_phase2_best" in registry else next(iter(registry))))))))
     )
+
     return _CLASSIFIER_REGISTRY, _DEFAULT_MODEL_ID
 
 
@@ -561,8 +576,107 @@ def read_image_from_bytes(raw_bytes: bytes) -> Image.Image:
         raise HTTPException(status_code=400, detail="Tệp ảnh không hợp lệ.") from exc
 
 
+def is_background_crop(image: Image.Image) -> bool:
+    """
+    Kiểm tra xem ảnh crop có phải là nền trống hoặc viền tế bào không chứa đủ thông tin hay không.
+    Dựa trên độ lệch chuẩn của các kênh màu và tỷ lệ màu sáng đặc trưng của nền.
+    """
+    arr = np.asarray(image.convert("RGB"), dtype=np.float32)
+    if arr.size == 0:
+        return True
+    
+    gray = arr.mean(axis=-1)
+    std = gray.std()
+    
+    # 1. Nếu độ lệch chuẩn cực kỳ thấp (ảnh gần như phẳng màu trơn) -> Nền trống
+    if std < 10.0:
+        return True
+        
+    # 2. Tính tỷ lệ pixel nền sáng
+    c_max = arr.max(axis=-1)
+    c_min = arr.min(axis=-1)
+    channel_delta = c_max - c_min
+    
+    # Nền sáng thường có giá trị gray > 215 và độ bão hòa (channel_delta) rất nhỏ < 18
+    bg_pixels = (gray > 215) & (channel_delta < 18)
+    bg_ratio = np.count_nonzero(bg_pixels) / bg_pixels.size
+    
+    # Nếu diện tích nền chiếm trên 95% -> Coi như không chứa tế bào đáng kể
+    if bg_ratio > 0.95:
+        return True
+        
+    # 3. Nếu hầu hết các pixel đều rất sáng (không có vùng tối của tế bào) -> Nền trống
+    # Cực kỳ hữu dụng khi người dùng vẽ khung trên vùng trống của slide
+    p5 = np.percentile(gray, 5)
+    if p5 > 185.0:
+        return True
+        
+    return False
+
+
+def estimate_crop_border_color(image: Image.Image) -> tuple[int, int, int]:
+    """Ước lượng màu nền biên của ảnh crop để làm đầy letterbox tự nhiên."""
+    arr = np.array(image)
+    if arr.ndim != 3 or arr.shape[0] < 2 or arr.shape[1] < 2:
+        return (114, 114, 114)
+    top = arr[0, :, :]
+    bottom = arr[-1, :, :]
+    left = arr[:, 0, :]
+    right = arr[:, -1, :]
+    border_pixels = np.concatenate([top, bottom, left, right], axis=0)
+    median_color = np.median(border_pixels, axis=0)
+    return tuple(map(int, median_color))
+
+
+def letterbox_to_square(
+    image: Image.Image,
+    size: int,
+    fill_color: tuple[int, int, int] = (114, 114, 114),
+) -> Image.Image:
+    """Resize giữ aspect ratio rồi pad về ảnh vuông size×size.
+
+    Dùng màu xám trung bình (114, 114, 114) — chuẩn YOLO — làm nền.
+    Sau preprocessing MobileNetV2 (x/127.5-1.0) giá trị này trở thành -0.107,
+    gần với mean của dataset blood cell, tránh gây bias.
+    """
+    w, h = image.size
+    if w == 0 or h == 0:
+        return Image.new("RGB", (size, size), fill_color)
+    scale = size / max(w, h)
+    nw, nh = max(1, int(w * scale)), max(1, int(h * scale))
+    resized = image.resize((nw, nh), RESAMPLING.LANCZOS)
+    canvas = Image.new("RGB", (size, size), fill_color)
+    canvas.paste(resized, ((size - nw) // 2, (size - nh) // 2))
+    return canvas
+
+
 def image_to_array(image: Image.Image, *, classifier: LoadedClassifier) -> np.ndarray:
-    resized = image.resize((classifier.input_width, classifier.input_height), RESAMPLING.BILINEAR)
+    """Resize ảnh crop về kích thước đầu vào của classifier.
+
+    Chiến lược:
+    - Nếu aspect ratio của crop > 1.25 (không gần vuông) → dùng letterbox để
+      bảo toàn hình dạng tế bào, tránh méo dạng morphological.
+    - Resampling filter: LANCZOS khi upscale (tế bào nhỏ → 224px) để giữ sắc nét;
+      BICUBIC khi downscale để tránh aliasing.
+    """
+    w, h = image.size
+    target_w, target_h = classifier.input_width, classifier.input_height
+
+    # Chọn filter dựa trên hướng scale
+    src_max = max(w, h) if (w > 0 and h > 0) else 1
+    dst_max = max(target_w, target_h)
+    resample_filter = RESAMPLING.LANCZOS if src_max <= dst_max else RESAMPLING.BICUBIC
+
+    # Dùng letterbox nếu aspect ratio lệch đáng kể (> 1.25)
+    aspect = max(w, h) / max(min(w, h), 1)
+    if aspect > 1.25 and target_w == target_h:
+        # Ước lượng màu biên để đệm nền tự nhiên thay vì màu xám tĩnh
+        fill_color = estimate_crop_border_color(image)
+        # Letterbox về square để giữ nguyên hình dạng tế bào
+        resized = letterbox_to_square(image, target_w, fill_color=fill_color)
+    else:
+        resized = image.resize((target_w, target_h), resample_filter)
+
     return np.asarray(resized, dtype=np.float32)
 
 

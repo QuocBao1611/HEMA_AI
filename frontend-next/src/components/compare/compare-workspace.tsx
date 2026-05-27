@@ -255,17 +255,11 @@ export function CompareWorkspace() {
               />
             </label>
 
-            <label className="group block space-y-2">
-              <span className="text-sm font-medium text-slate-300 group-hover:text-white transition-colors">Padding ratio</span>
-              <input
-                type="number"
-                step="0.05"
-                min="0"
-                max="1"
-                className="h-12 w-full rounded-2xl border border-white/10 bg-black/40 px-4 text-sm text-white shadow-inner outline-none transition-all duration-300 hover:border-white/20 focus:border-orange-400 focus:bg-orange-400/5 focus:ring-4 focus:ring-orange-400/10"
-                {...form.register("padding_ratio", { valueAsNumber: true })}
-              />
-            </label>
+            {/* Ẩn tỷ lệ viền đệm để tinh giản UI, giá trị mặc định được tự động đồng bộ */}
+            <input
+              type="hidden"
+              {...form.register("padding_ratio", { valueAsNumber: true })}
+            />
 
             <label className="group block space-y-2">
               <span className="text-sm font-medium text-slate-300 group-hover:text-white transition-colors">Min component area</span>

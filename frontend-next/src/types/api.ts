@@ -12,6 +12,7 @@ export type ModelSummary = {
   input_shape: number[];
   num_classes: number;
   preprocessing: string;
+  unified?: boolean;
 };
 
 export type HealthResponse = {
@@ -215,9 +216,10 @@ export type CompareRow = {
   average_confidence: number;
   average_region_confidence: number;
   dominant_label: string;
-  top_group_label: string;
+  top_group_label: string | null;
   top_group_count: number;
   fallback_used: boolean;
+  execution_time_ms?: number;
 };
 
 export type SharedDetectionSummary = {
@@ -235,6 +237,7 @@ export type CompareModelsResponse = {
   comparison_rows: CompareRow[];
   best_by_average_confidence: CompareRow | null;
   best_by_detected_cells: CompareRow | null;
+  models?: AnalyzeResponse[];
   note: string;
 };
 

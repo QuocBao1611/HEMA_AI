@@ -10,7 +10,8 @@ import Image from "next/image";
 import { compareModels } from "@/lib/api/compare";
 import { useSystemInfo } from "@/hooks/use-system-info";
 import { formatCount, formatPercent } from "@/lib/utils/format";
-import type { CompareModelsResponse, CompareRow } from "@/types/api";
+import type { CompareModelsResponse, CompareRow, CountRow } from "@/types/api";
+import { ResultTable } from "@/components/analysis/result-table";
 
 Chart.register(...registerables);
 
@@ -28,7 +29,7 @@ const MODEL_COLORS = ["#378ADD", "#1D9E75", "#E8590C"];
 const COLOR_A = MODEL_COLORS[0];
 const COLOR_B = MODEL_COLORS[1];
 const COLOR_C = MODEL_COLORS[2];
-const RADAR_LABELS = ["Độ tự tin (Thực tế)", "Độ chính xác", "Độ chuẩn xác", "Độ bao phủ", "Điểm F1", "Tốc độ", "Độ ổn định"];
+const RADAR_LABELS = ["Độ tự tin (Avg)", "Tỷ lệ nhận diện tin cậy", "Tốc độ (Speed)"];
 
 // ─── Sub-components ──────────────────────────────────────────────────────────
 
@@ -93,19 +94,17 @@ function ModelCard({
   return (
     <div
       onClick={onToggle}
-      className={`relative cursor-pointer rounded-xl p-5 transition-all ${
-        selected
-          ? "border-2 border-blue-500 bg-background"
-          : "border border-border bg-background opacity-60"
-      }`}
+      className={`relative cursor-pointer rounded-xl p-5 transition-all ${selected
+        ? "border-2 border-blue-500 bg-background"
+        : "border border-slate-200 dark:border-border bg-background opacity-60"
+        }`}
     >
       {/* Checkmark */}
       <div
-        className={`absolute right-3.5 top-3.5 flex h-5 w-5 items-center justify-center rounded-full text-xs transition-all ${
-          selected
-            ? "border border-blue-400 bg-blue-100 text-blue-600 dark:bg-blue-900/40 dark:text-blue-300"
-            : "border border-border"
-        }`}
+        className={`absolute right-3.5 top-3.5 flex h-5 w-5 items-center justify-center rounded-full text-xs transition-all ${selected
+          ? "border border-blue-400 bg-blue-100 text-blue-600 dark:bg-blue-900/40 dark:text-blue-300"
+          : "border border-slate-200 dark:border-border"
+          }`}
       >
         {selected && "✓"}
       </div>
@@ -123,14 +122,14 @@ function ModelCard({
 
 function SummaryCard({ label, values, names }: { label: string; values: string[]; names: string[] }) {
   return (
-    <div className="rounded-xl bg-muted/50 p-4">
-      <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-foreground/40">{label}</p>
+    <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4 shadow-sm dark:border-white/5 dark:bg-muted/50 dark:shadow-none">
+      <p className="mb-3 text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-foreground/40">{label}</p>
       <div className="flex flex-col gap-2">
         {values.map((v, i) => (
           <div key={names[i]} className="flex items-center justify-between">
             <div className="flex items-center gap-1.5 overflow-hidden">
               <div className="h-2 w-2 shrink-0 rounded-full" style={{ background: MODEL_COLORS[i] }} />
-              <span className="text-xs text-foreground/60 truncate">{names[i]}</span>
+              <span className="text-xs font-medium text-slate-600 dark:text-foreground/60 truncate">{names[i]}</span>
             </div>
             <span className="text-base font-bold text-foreground">{v}</span>
           </div>
@@ -170,8 +169,8 @@ function BarComparison({ metrics, names }: { metrics: Metric[]; names: string[] 
 // ─── Analysis Progress Panel ──────────────────────────────────────────────────
 
 const ANALYSIS_STEPS_BASE = [
-  { id: "upload",   label: "Tải ảnh lên máy chủ",         duration: 600  },
-  { id: "detect",  label: "Phát hiện vùng tế bào (YOLO)",  duration: 3500 },
+  { id: "upload", label: "Tải ảnh lên máy chủ", duration: 600 },
+  { id: "detect", label: "Phát hiện vùng tế bào (YOLO)", duration: 3500 },
 ];
 
 const ANALYSIS_STEP_CLASSIFY = (name: string, dur: number) => ({
@@ -268,12 +267,10 @@ function AnalysisProgress({ modelNames }: { modelNames: string[] }) {
         {steps.map((step) => {
           const status = stepStatuses[step.id] ?? "waiting";
           return (
-            <div key={step.id} className={`flex items-center gap-3 text-sm transition-all duration-300 ${
-              status === "done" ? "opacity-100" : status === "running" ? "opacity-100" : "opacity-35"
-            }`}>
-              <div className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[11px] transition-all ${
-                status === "done" ? "bg-emerald-500 text-white" : status === "running" ? "bg-blue-500 text-white" : "bg-blue-100 dark:bg-blue-900/40 text-blue-400"
+            <div key={step.id} className={`flex items-center gap-3 text-sm transition-all duration-300 ${status === "done" ? "opacity-100" : status === "running" ? "opacity-100" : "opacity-35"
               }`}>
+              <div className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[11px] transition-all ${status === "done" ? "bg-emerald-500 text-white" : status === "running" ? "bg-blue-500 text-white" : "bg-blue-100 dark:bg-blue-900/40 text-blue-400"
+                }`}>
                 {status === "done" ? (
                   <svg viewBox="0 0 12 12" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2"><path d="M2 6l3 3 5-5" strokeLinecap="round" strokeLinejoin="round" /></svg>
                 ) : status === "running" ? (
@@ -282,9 +279,8 @@ function AnalysisProgress({ modelNames }: { modelNames: string[] }) {
                   <span className="h-1.5 w-1.5 rounded-full bg-current" />
                 )}
               </div>
-              <span className={`font-medium ${
-                status === "done" ? "text-emerald-700 dark:text-emerald-400" : status === "running" ? "text-blue-700 dark:text-blue-300" : "text-blue-400 dark:text-blue-600"
-              }`}>{step.label}</span>
+              <span className={`font-medium ${status === "done" ? "text-emerald-700 dark:text-emerald-400" : status === "running" ? "text-blue-700 dark:text-blue-300" : "text-blue-400 dark:text-blue-600"
+                }`}>{step.label}</span>
               {status === "running" && <span className="ml-auto text-[11px] text-blue-400 dark:text-blue-500 animate-pulse">Đang chạy...</span>}
               {status === "done" && <span className="ml-auto text-[11px] text-emerald-500">Xong ✓</span>}
             </div>
@@ -353,7 +349,6 @@ export function ModelComparison() {
   const [selectedModelIds, setSelectedModelIds] = useState<string[]>([]);
   const [showResults, setShowResults] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [activeTab, setActiveTab] = useState<"explain" | "advice" | null>(null);
   const resultsRef = useRef<HTMLDivElement>(null);
 
   const [config, setConfig] = useState({
@@ -376,7 +371,6 @@ export function ModelComparison() {
     if (previewUrl) URL.revokeObjectURL(previewUrl);
     setPreviewUrl(URL.createObjectURL(file));
     setShowResults(false);
-    setActiveTab(null);
   };
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
@@ -409,12 +403,11 @@ export function ModelComparison() {
     if (selectedModelIds.length < 2) { toast.error("Hãy chọn ít nhất 2 model để so sánh."); return; }
     setIsAnalyzing(true);
     setShowResults(false);
-    setActiveTab(null);
     compareMutation.mutate({
       file: selectedFile,
       model_ids: selectedModelIds,
       confidence_threshold: config.confidence_threshold,
-      padding_ratio: 0.1,
+      padding_ratio: 0.0,
       min_component_area: 80,
       max_detections: config.max_detections,
     });
@@ -431,10 +424,20 @@ export function ModelComparison() {
     });
   };
 
-  // ─── Data Mapping ─────────────────────────────────────────────────────────
-  
   const resultData = compareMutation.data;
-  
+
+  const uniqueLabels = useMemo(() => {
+    if (!resultData || !resultData.models) return [];
+    const labelsSet = new Set<string>();
+    resultData.models.forEach(modelResult => {
+      const rows = modelResult.estimated_counts ?? [];
+      rows.forEach(row => {
+        labelsSet.add(row.label);
+      });
+    });
+    return Array.from(labelsSet).sort();
+  }, [resultData]);
+
   const mappedResults = useMemo(() => {
     if (!resultData || resultData.comparison_rows.length < 2) return null;
     const rows = resultData.comparison_rows;
@@ -446,32 +449,30 @@ export function ModelComparison() {
 
     const radarDatasets = rows.map((row, i) => {
       const m = benchmarks[i];
+      const reliableRate = row.detected_cell_count > 0
+        ? Math.round((row.classified_cell_count / row.detected_cell_count) * 100)
+        : 0;
       return [
         row.average_confidence * 100,
-        m.accuracy,
-        m.weighted_precision || m.accuracy,
-        m.weighted_recall || m.accuracy,
-        m.weighted_f1 || m.accuracy,
+        reliableRate,
         m.inference_speed_score || 85,
-        m.stability_score || 85,
       ];
     });
 
     const summaryCards = [
+      { label: "Số tế bào (Cells)", values: rows.map(r => formatCount(r.detected_cell_count)) },
       { label: "Độ tự tin (Avg)", values: rows.map(r => formatPercent(r.average_confidence)) },
-      { label: "Phát hiện (Cells)", values: rows.map(r => formatCount(r.detected_cell_count)) },
-      { label: "Phân loại (Cells)", values: rows.map(r => formatCount(r.classified_cell_count)) },
-      { label: "Chiếm đa số", values: rows.map(r => r.dominant_label) },
+      { label: "Tốc độ phân tích", values: rows.map(r => r.execution_time_ms ? (r.execution_time_ms < 1000 ? `${Math.round(r.execution_time_ms)}ms` : `${(r.execution_time_ms / 1000).toFixed(2)}s`) : "Đang tính...") },
     ];
 
     const barMetrics: Metric[] = [
       { label: "Độ tự tin trung bình (Thực tế)", values: rows.map(r => Math.round(r.average_confidence * 100)), unit: "%" },
-      { label: "Độ chính xác tổng thể (Accuracy)", values: benchmarks.map(m => Math.round(m.accuracy)), unit: "%" },
-      { label: "Độ chuẩn xác (Precision)", values: benchmarks.map(m => Math.round(m.weighted_precision || m.accuracy)), unit: "%" },
-      { label: "Độ bao phủ (Recall)", values: benchmarks.map(m => Math.round(m.weighted_recall || m.accuracy)), unit: "%" },
-      { label: "Điểm F1 (F1-Score)", values: benchmarks.map(m => Math.round(m.weighted_f1 || m.accuracy)), unit: "%" },
+      {
+        label: "Tỷ lệ nhận diện tin cậy",
+        values: rows.map(r => r.detected_cell_count > 0 ? Math.round((r.classified_cell_count / r.detected_cell_count) * 100) : 0),
+        unit: "%"
+      },
       { label: "Tốc độ suy luận (Speed)", values: benchmarks.map(m => Math.round(m.inference_speed_score || 85)), unit: "%" },
-      { label: "Độ ổn định (Stability)", values: benchmarks.map(m => Math.round(m.stability_score || 85)), unit: "%" },
     ];
 
     return { rows, names, radarDatasets, summaryCards, barMetrics };
@@ -520,13 +521,11 @@ export function ModelComparison() {
           {/* Upload zone */}
           <div
             {...getRootProps()}
-            className={`cursor-pointer rounded-xl border-2 border-dashed text-center transition-all flex flex-col items-center justify-center overflow-hidden ${
-              previewUrl ? "p-0" : "p-10"
-            } ${
-              isDragActive
+            className={`cursor-pointer rounded-xl border-2 border-dashed text-center transition-all flex flex-col items-center justify-center overflow-hidden ${previewUrl ? "p-0" : "p-10"
+              } ${isDragActive
                 ? "border-blue-400 bg-blue-50/60 dark:bg-blue-900/15 dark:border-blue-500"
                 : "border-slate-300 dark:border-white/20 bg-background hover:border-blue-300 hover:bg-slate-50 dark:hover:border-white/30 dark:hover:bg-white/[0.04]"
-            } lg:h-72`}
+              } lg:h-72`}
           >
             <input {...getInputProps()} />
             {previewUrl ? (
@@ -580,136 +579,110 @@ export function ModelComparison() {
       {/* Results */}
       {showResults && mappedResults && (() => {
         const { rows, names, radarDatasets, summaryCards, barMetrics } = mappedResults;
-        const accuracies = barMetrics.find(m => m.label.includes("Accuracy"))?.values || rows.map(() => 0);
-        const bestIdx = rows.reduce((best, row, i) => {
-          // Unbiased score based on real-time confidence and accuracy metrics
-          const scoreOf = (idx: number) => rows[idx].average_confidence;
-          if (scoreOf(i) > scoreOf(best)) return i;
-          if (scoreOf(i) === scoreOf(best) && accuracies[i] > accuracies[best]) return i;
-          return best;
-        }, 0);
-
-
-
-        const highestConfIdx = rows.reduce((best, row, i) => {
-          return row.average_confidence > rows[best].average_confidence ? i : best;
-        }, 0);
 
         return (
-        <div ref={resultsRef} className="animate-in fade-in slide-in-from-bottom-4 duration-700">
-          <hr className="mb-6 border-border" />
+          <div ref={resultsRef} className="animate-in fade-in slide-in-from-bottom-4 duration-700">
+            <hr className="mb-6 border-border" />
 
-          <div className="mb-5 flex items-center justify-between">
-            <h2 className="text-lg font-semibold text-foreground">Kết quả so sánh</h2>
-            <span className="rounded-md bg-emerald-100 px-2.5 py-0.5 text-xs text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
-              {rows.length} model · 1 ảnh phân tích
-            </span>
-          </div>
+            <div className="mb-5 flex items-center justify-between">
+              <h2 className="text-lg font-semibold text-foreground">Kết quả so sánh</h2>
+              <span className="rounded-md bg-emerald-100 px-2.5 py-0.5 text-xs text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
+                {rows.length} model · 1 ảnh phân tích
+              </span>
+            </div>
 
-          {/* Summary cards */}
-          <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
-            {summaryCards.map((c) => (
-              <SummaryCard key={c.label} label={c.label} values={c.values} names={names} />
-            ))}
-          </div>
+            {/* Cell Type Comparison Table */}
+            <div className="mb-8">
+              {uniqueLabels.length > 0 ? (
+                <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-border bg-background shadow-sm">
+                  <table className="w-full border-collapse text-left text-sm">
+                    <thead>
+                      <tr className="border-b border-slate-200 dark:border-border bg-slate-50 dark:bg-muted/40 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                        <th className="px-6 py-4">Loại tế bào</th>
+                        {names.map((name, i) => (
+                          <th key={name} className="px-6 py-4">
+                            <div className="flex items-center gap-1.5">
+                              <span className="h-2 w-2 rounded-full" style={{ backgroundColor: MODEL_COLORS[i] }} />
+                              {name}
+                            </div>
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-200 dark:divide-border">
+                      {uniqueLabels.map(label => (
+                        <tr key={label} className="hover:bg-slate-50/50 dark:hover:bg-muted/30 transition-colors">
+                          <td className="px-6 py-4 font-semibold text-foreground text-base">{label}</td>
+                          {resultData?.models?.map((modelResult, i) => {
+                            const modelRows = modelResult.estimated_counts ?? [];
+                            const match = modelRows.find(r => r.label === label);
+                            return (
+                              <td key={modelResult.selected_model_id || i} className="px-6 py-4">
+                                {match ? (
+                                  <div className="font-semibold text-foreground text-base">
+                                    {formatCount(match.count)}
+                                    {match.average_confidence !== undefined && (
+                                      <span className="ml-2 text-sm font-normal text-muted-foreground">
+                                        (Độ tin cậy: {formatPercent(match.average_confidence)})
+                                      </span>
+                                    )}
+                                  </div>
+                                ) : (
+                                  <span className="text-muted-foreground/40 text-base">-</span>
+                                )}
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className="py-8 text-center text-sm text-foreground/50">Không có dữ liệu phân loại.</div>
+              )}
+            </div>
 
-          {/* Charts */}
-          <div className="mb-6 grid grid-cols-1 gap-4 lg:grid-cols-2">
-            {/* Radar */}
-            <div className="rounded-xl border border-border bg-background p-6">
-              <p className="mb-0.5 text-base font-semibold text-foreground">Radar đa chỉ số</p>
-              <p className="mb-3 text-xs text-foreground/40">Cấu hình hiệu năng thực tế</p>
-              <div className="mb-3 flex flex-wrap gap-x-4 gap-y-2">
-                {names.map((name, i) => (
-                  <div key={name} className="flex items-center gap-1.5 text-[10px] text-foreground/60">
-                    <div className="h-2 w-2 rounded-full" style={{ background: MODEL_COLORS[i] }} />
-                    {name}
-                  </div>
-                ))}
+            {/* Summary cards */}
+            <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-3">
+              {summaryCards.map((c) => (
+                <SummaryCard key={c.label} label={c.label} values={c.values} names={names} />
+              ))}
+            </div>
+
+            {/* Charts */}
+            <div className="mb-6 grid grid-cols-1 gap-4 lg:grid-cols-2">
+              {/* Radar */}
+              <div className="rounded-xl border border-slate-200 dark:border-border bg-background p-6 shadow-sm dark:shadow-none">
+                <p className="mb-0.5 text-base font-semibold text-foreground">Radar đa chỉ số</p>
+                <p className="mb-3 text-xs text-foreground/40">Cấu hình hiệu năng thực tế</p>
+                <div className="mb-3 flex flex-wrap gap-x-4 gap-y-2">
+                  {names.map((name, i) => (
+                    <div key={name} className="flex items-center gap-1.5 text-[10px] text-foreground/60">
+                      <div className="h-2 w-2 rounded-full" style={{ background: MODEL_COLORS[i] }} />
+                      {name}
+                    </div>
+                  ))}
+                </div>
+                <RadarChart datasets={radarDatasets} names={names} />
               </div>
-              <RadarChart datasets={radarDatasets} names={names} />
-            </div>
 
-            {/* Bar */}
-            <div className="rounded-xl border border-border bg-background p-6">
-              <p className="mb-0.5 text-base font-semibold text-foreground">Chi tiết từng metric</p>
-              <p className="mb-3 text-xs text-foreground/40">So sánh song song</p>
-              <div className="mb-3 flex flex-wrap gap-x-4 gap-y-2">
-                {names.map((name, i) => (
-                  <div key={name} className="flex items-center gap-1.5 text-[10px] text-foreground/60">
-                    <div className="h-2 w-2 rounded-full" style={{ background: MODEL_COLORS[i] }} />
-                    {name}
-                  </div>
-                ))}
+              {/* Bar */}
+              <div className="rounded-xl border border-slate-200 dark:border-border bg-background p-6 shadow-sm dark:shadow-none">
+                <p className="mb-0.5 text-base font-semibold text-foreground">Chi tiết từng metric</p>
+                <p className="mb-3 text-xs text-foreground/40">So sánh song song</p>
+                <div className="mb-3 flex flex-wrap gap-x-4 gap-y-2">
+                  {names.map((name, i) => (
+                    <div key={name} className="flex items-center gap-1.5 text-[10px] text-foreground/60">
+                      <div className="h-2 w-2 rounded-full" style={{ background: MODEL_COLORS[i] }} />
+                      {name}
+                    </div>
+                  ))}
+                </div>
+                <BarComparison metrics={barMetrics} names={names} />
               </div>
-              <BarComparison metrics={barMetrics} names={names} />
             </div>
           </div>
-
-          {/* Action Buttons */}
-          <div className="flex gap-3 mt-6">
-            <button
-              onClick={() => setActiveTab(prev => prev === "explain" ? null : "explain")}
-              className={`flex-1 rounded-lg border py-2 text-xs font-medium transition ${
-                activeTab === "explain"
-                  ? "border-blue-500 bg-blue-50 text-blue-700 dark:border-blue-700 dark:bg-blue-900/30 dark:text-blue-300"
-                  : "border-border bg-background text-foreground/80 hover:bg-muted/50"
-              }`}
-            >
-              Giải thích kết quả {activeTab === "explain" ? "↓" : "↗"}
-            </button>
-            <button
-              onClick={() => setActiveTab(prev => prev === "advice" ? null : "advice")}
-              className={`flex-1 rounded-lg border py-2 text-xs font-medium transition ${
-                activeTab === "advice"
-                  ? "border-emerald-500 bg-emerald-50 text-emerald-700 dark:border-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300"
-                  : "border-border bg-background text-foreground/80 hover:bg-muted/50"
-              }`}
-            >
-              Tư vấn chọn model {activeTab === "advice" ? "↓" : "↗"}
-            </button>
-          </div>
-
-          {/* Expandable Insights */}
-          {activeTab === "explain" && (
-            <div className="mt-4 rounded-xl border border-blue-200 bg-blue-50/50 p-5 text-sm leading-relaxed text-blue-900 dark:border-blue-800/50 dark:bg-blue-900/10 dark:text-blue-100 animate-in fade-in slide-in-from-top-2">
-              <h4 className="mb-2 font-semibold">🔍 Phân tích chi tiết</h4>
-              <ul className="list-inside list-disc space-y-1.5 opacity-90">
-                {rows.map((row) => (
-                  <li key={row.model_id}>
-                    <strong>{row.display_name}</strong> phát hiện được <strong>{row.detected_cell_count}</strong> tế bào với độ tự tin trung bình là <strong>{formatPercent(row.average_confidence)}</strong>.
-                  </li>
-                ))}
-                <li>
-                  {new Set(rows.map(r => r.dominant_label)).size === 1
-                    ? <>Tất cả model <strong>đồng thuận</strong> về loại tế bào chiếm đa số là <strong>{rows[0].dominant_label}</strong>.</>
-                    : <>Các model <strong>bất đồng</strong> về loại tế bào chiếm đa số ({rows.map(r => r.dominant_label).join(" vs ")}), cho thấy ảnh này có thể chứa các tế bào khó phân biệt.</>
-                  }
-                </li>
-                <li>
-                  Model có độ tự tin cao nhất trên ảnh này là <strong>{rows[highestConfIdx].display_name}</strong> ({formatPercent(rows[highestConfIdx].average_confidence)}).
-                </li>
-              </ul>
-            </div>
-          )}
-
-          {activeTab === "advice" && (
-            <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50/50 p-5 text-sm leading-relaxed text-emerald-900 dark:border-emerald-800/50 dark:bg-emerald-900/10 dark:text-emerald-100 animate-in fade-in slide-in-from-top-2">
-              <h4 className="mb-2 font-semibold">💡 Khuyến nghị</h4>
-              <p className="mb-3 opacity-90">
-                Dựa trên kết quả phân tích thực tế trên bức ảnh này:
-              </p>
-              <div className="rounded-lg bg-emerald-100/50 p-3 dark:bg-emerald-800/20 mb-3 border border-emerald-200 dark:border-emerald-800/50">
-                <p className="font-medium">
-                  Nên sử dụng: <strong>{rows[bestIdx].display_name}</strong>
-                </p>
-              </div>
-              <ul className="list-inside list-disc space-y-1.5 opacity-90">
-                <li>Hệ thống tính điểm dựa trên độ tự tin thực tế kết hợp với các chỉ số hiệu năng (Accuracy, Precision, Recall) từ bộ dữ liệu kiểm chứng.</li>
-              </ul>
-            </div>
-          )}
-        </div>
         );
       })()}
     </div>

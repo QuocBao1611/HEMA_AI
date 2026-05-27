@@ -151,8 +151,36 @@ async def predict(
     validate_image_upload(file, raw_bytes)
 
     logger.info("Starting prediction for %s", safe_filename(file.filename))
+    
     async with inference_semaphore:
         classifier = get_classifier(model_id)
+        
+        from backend.app.services.classifier_service import is_background_crop
+        image = read_image_from_bytes(raw_bytes)
+        
+        if classifier.model_id != "dummy_model" and is_background_crop(image):
+            # Trả về kết quả Nền trống trực tiếp mà không cần chạy mô hình
+            return {
+                "mode": "predict",
+                "filename": file.filename,
+                "selected_model_id": classifier.model_id,
+                "selected_model_name": classifier.display_name,
+                "input_shape": classifier.input_shape,
+                "preprocessing": "none",
+                "label": "Không có tế bào / Nền",
+                "raw_label": "BACKGROUND",
+                "class_index": -1,
+                "confidence": 1.0,
+                "predictions": [
+                    {
+                        "index": -1,
+                        "label": "Không có tế bào / Nền",
+                        "raw_label": "BACKGROUND",
+                        "confidence": 1.0,
+                    }
+                ],
+            }
+
         batch = preprocess_image(raw_bytes, classifier)
 
         def _predict() -> Any:

@@ -23,6 +23,7 @@ from backend.app.api.routes.analysis import router as analysis_router
 from backend.app.api.routes.auth import router as auth_router
 from backend.app.api.routes.system import alias_router
 from backend.app.api.routes.system import router as system_router
+from backend.app.api.routes.xai import router as xai_router
 from backend.app.core.config import settings
 from backend.app.core.logging import get_logger, setup_logging
 from backend.app.core.rate_limit import limiter, rate_limit_exceeded_handler
@@ -176,4 +177,5 @@ app.include_router(system_router)
 app.include_router(analysis_router)
 app.include_router(auth_router)
 app.include_router(admin_router)
+app.include_router(xai_router)
 app.include_router(alias_router)

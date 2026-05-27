@@ -1,46 +1,20 @@
 {
   "models": {
-    "MobilenetV2.onnx": {
-      "display_name": "MobileNetV2 (New)",
+    "blood_cell_model_v4.onnx": {
+      "display_name": "MobileNetV2",
       "preprocessing": "mobilenet_v2",
-      "model_id": "mobilenetv2_new"
+      "model_id": "blood_cell_v4"
     },
-    "mobilenetv2_phase2_best.onnx": {
-      "display_name": "MobileNetV2 Phase2 Best",
-      "preprocessing": "mobilenet_v2",
-      "model_id": "mobilenetv2_phase2_best"
-    },
-    "mobilenetv2_final.onnx": {
-      "display_name": "MobileNetV2 Final",
-      "preprocessing": "mobilenet_v2",
-      "model_id": "mobilenet_final"
-    },
-    "mobilenetv2_blood_cell_final.onnx": {
-      "display_name": "MobileNetV2 Blood Cell (Final) [deprecated]",
-      "preprocessing": "mobilenet_v2",
-      "model_id": "mobilenet_blood_cell"
-    },
-    "best_model_v2.onnx": {
-      "display_name": "Best Model V2 (ResNet50)",
-      "preprocessing": "resnet50",
-      "model_id": "best_model_v2"
+    "final_model_resnet.onnx": {
+      "display_name": "ResNet",
+      "preprocessing": "zero_one",
+      "model_id": "final_model_resnet"
     },
     "best9.onnx": {
-      "display_name": "Best9 YOLO (unified)",
+      "display_name": "YOLOv13",
       "preprocessing": "yolo_detect",
       "model_id": "best9",
       "num_classes": 14,
-      "input_shape": [
-        640,
-        640,
-        3
-      ]
-    },
-    "yolov8n-bccd.onnx": {
-      "display_name": "YOLOv8n BCCD",
-      "preprocessing": "yolo_detect",
-      "model_id": "yolov8n_bccd",
-      "num_classes": 3,
       "input_shape": [
         640,
         640,

@@ -142,7 +142,7 @@ export async function exportAnalysisReport({
         String(row.detected_cell_count),
         String(row.classified_cell_count),
         formatPercent(row.average_confidence),
-        row.top_group_label,
+        row.top_group_label || "-",
       ]),
       theme: "striped",
       styles: commonTableStyles,

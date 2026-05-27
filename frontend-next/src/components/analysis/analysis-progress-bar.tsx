@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useMemo } from "react";
 import { CheckCircle2, Microscope, Scissors, BarChart3 } from "lucide-react";
 
 type Stage = {
@@ -67,9 +67,10 @@ const UNIFIED_STAGES: Stage[] = [
 type Props = {
   isPending: boolean;
   isUnified?: boolean;
+  modelName?: string;
 };
 
-export function AnalysisProgressBar({ isPending, isUnified = false }: Props) {
+export function AnalysisProgressBar({ isPending, isUnified = false, modelName }: Props) {
   const [visible, setVisible] = useState(false);
   const [done, setDone] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -79,7 +80,22 @@ export function AnalysisProgressBar({ isPending, isUnified = false }: Props) {
   const progressRef = useRef(0);
   const stageIdxRef = useRef(0);
 
-  const activeStages = isUnified ? UNIFIED_STAGES : DEFAULT_STAGES;
+  const activeStages = useMemo(() => {
+    const stages = isUnified ? UNIFIED_STAGES : DEFAULT_STAGES;
+    if (!modelName) return stages;
+    return stages.map(stage => {
+      let hint = stage.hint;
+      if (hint.includes("MobileNet")) {
+        hint = hint.replace("MobileNet", modelName);
+      } else if (hint.includes("YOLO")) {
+        hint = hint.replace("YOLO", modelName);
+      }
+      return {
+        ...stage,
+        hint
+      };
+    });
+  }, [isUnified, modelName]);
 
   const clearTick = () => {
     if (intervalRef.current) {
