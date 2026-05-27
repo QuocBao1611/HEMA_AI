@@ -610,25 +610,25 @@ export function AnalysisWorkspace() {
 
   return (
     <div className="bg-[linear-gradient(180deg,rgba(241,245,249,0)_0%,#f1f5f9_100%)] dark:bg-[linear-gradient(180deg,rgba(0,0,0,0.2),rgba(0,0,0,0.95)_34%,#000000_100%)] transition-colors duration-500">
-      <section className="relative min-h-screen overflow-hidden border-b border-black/8 dark:border-white/8 transition-colors duration-500">
+      <section className="relative min-h-[70vh] md:min-h-screen overflow-hidden border-b border-black/8 dark:border-white/8 transition-colors duration-500">
         <Image
           src={isDark ? "/images/hero-doctor-lab.png" : "/images/hero-doctor-lab-light.png"}
           alt="Bác sĩ huyết học trong phòng xét nghiệm hiện đại"
           fill
           priority
           sizes="100vw"
-          className={`object-cover transition-opacity duration-500 ${isDark ? "object-right-top" : "object-[right_28%]"
-            }`}
+          className={`object-cover transition-opacity duration-500 ${isDark ? "opacity-35 object-[75%_center] md:object-right-top" : "opacity-55 object-[75%_center] md:object-[right_28%]"
+            } md:opacity-100`}
         />
         <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(255,255,255,0.75)_0%,rgba(255,255,255,0.4)_38%,transparent_65%),linear-gradient(180deg,transparent_70%,rgba(241,245,249,0.95)_95%,#f1f5f9)] dark:bg-[linear-gradient(90deg,rgba(0,0,0,0.92),rgba(0,0,0,0.6)_46%,rgba(0,0,0,0.1)),linear-gradient(180deg,transparent_60%,rgba(0,0,0,0.8)_90%,#000000)] transition-colors duration-500 pointer-events-none" />
 
-        <div className="relative flex min-h-screen items-center px-6 py-20 sm:px-10 lg:px-14">
+        <div className="relative flex min-h-[70vh] md:min-h-screen items-center px-6 py-20 sm:px-10 lg:px-14">
           <div className="max-w-2xl">
             <div className="mb-5 flex items-center gap-3 text-sm font-bold uppercase tracking-[0.18em] text-red-600 dark:text-red-200 transition-colors duration-500">
               <span className="h-px w-9 bg-red-500/70 dark:bg-red-400/70 transition-colors duration-500" />
               AI Huyết Học
             </div>
-            <h1 className="font-display text-4xl font-bold leading-tight tracking-tight sm:text-5xl lg:text-6xl text-slate-900 dark:text-white transition-colors duration-500">
+            <h1 className="font-display text-3xl font-bold leading-tight tracking-tight sm:text-5xl lg:text-6xl text-slate-900 dark:text-white transition-colors duration-500">
               Hệ thống Phân tích Huyết học AI thế hệ mới
             </h1>
 

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
+import { Menu, X } from "lucide-react";
 
 const navLinks = [
   { href: "/", label: "Phân tích" },
@@ -17,6 +18,7 @@ export function RevealNavbar() {
   const [visible, setVisible] = useState(true);
   const hideTimer = useRef<number | null>(null);
   const pointerInside = useRef(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const isInBanner = () => window.scrollY <= 80;
 
@@ -34,7 +36,7 @@ export function RevealNavbar() {
 
   const scheduleHide = () => {
     clearHideTimer();
-    if (isInBanner()) {
+    if (isInBanner() || mobileMenuOpen) {
       setVisible(true);
       return;
     }
@@ -49,7 +51,7 @@ export function RevealNavbar() {
     };
 
     const handleScroll = () => {
-      if (isInBanner()) {
+      if (isInBanner() || mobileMenuOpen) {
         show();
         return;
       }
@@ -67,7 +69,7 @@ export function RevealNavbar() {
       window.removeEventListener("scroll", handleScroll);
       clearHideTimer();
     };
-  }, [clearHideTimer, show]);
+  }, [clearHideTimer, show, mobileMenuOpen]);
 
   return (
     <div
@@ -135,7 +137,42 @@ export function RevealNavbar() {
           >
             Admin
           </Link>
+
+          {/* Mobile menu button */}
+          <button
+            type="button"
+            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            className="flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 bg-slate-100 text-slate-700 dark:border-white/10 dark:bg-white/6 dark:text-zinc-200 md:hidden transition hover:bg-slate-200 dark:hover:bg-white/10"
+            aria-label="Toggle Menu"
+          >
+            {mobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+          </button>
         </div>
+
+        {/* Mobile menu panel */}
+        {mobileMenuOpen && (
+          <div className="absolute inset-x-0 top-full z-40 border-b border-black/8 dark:border-white/8 bg-white/95 dark:bg-black/95 backdrop-blur-xl md:hidden px-5 py-4 animate-in slide-in-from-top-2 duration-200">
+            <div className="flex flex-col gap-2">
+              {navLinks.map((link) => {
+                const isActive = link.href === "/" ? pathname === "/" : pathname?.startsWith(link.href);
+                return (
+                  <Link
+                    key={link.href}
+                    href={link.href}
+                    onClick={() => setMobileMenuOpen(false)}
+                    className={`text-sm font-semibold transition-colors py-2.5 px-4 rounded-xl ${
+                      isActive
+                        ? "bg-red-500/10 text-red-600 dark:text-red-400 font-bold"
+                        : "text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-white/5"
+                    }`}
+                  >
+                    {link.label}
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </nav>
     </div>
   );
