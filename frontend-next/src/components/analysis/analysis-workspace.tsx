@@ -1015,16 +1015,11 @@ export function AnalysisWorkspace() {
                     <h2 className="text-xl font-bold text-black dark:text-white">
                       Bảng kết quả {corrections.size > 0 && <span className="ml-2 rounded-full bg-amber-500/15 px-2.5 py-1 text-xs font-bold text-amber-600 dark:text-amber-400">Đã chỉnh sửa</span>}
                     </h2>
-                    <p className="text-sm text-slate-600 dark:text-slate-300/72">
-                      Cùng một kết quả, nhiều góc nhìn: nhãn, nhóm và WBC differential.
-                    </p>
                   </div>
 
                   <div className="flex flex-wrap gap-2">
                     {([
                       { key: "counts", label: "Theo nhãn" },
-                      { key: "groups", label: "Nhóm chẩn đoán" },
-                      { key: "wbc", label: "Tỷ lệ WBC" },
                     ] as Array<{ key: ResultTabKey; label: string }>).map((tab) => (
                       <button
                         key={tab.key}

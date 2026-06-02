@@ -27,14 +27,27 @@ async def get_gradcam(
     request: Request,
     file: UploadFile = File(...),
     class_idx: int | None = Form(None),
+    class_label: str | None = Form(None),
     model_id: str | None = Form(None),
+    box_w: int | None = Form(None),
+    box_h: int | None = Form(None),
+    x1: int | None = Form(None),
+    y1: int | None = Form(None),
+    x2: int | None = Form(None),
+    y2: int | None = Form(None),
+    image_width: int | None = Form(None),
+    image_height: int | None = Form(None),
 ):
     """
     Tính toán heatmap EigenCAM cho một ảnh tế bào được tải lên.
     
     - **file**: File ảnh tế bào (PNG/JPG)
     - **class_idx**: Index lớp mục tiêu (mặc định là lớp AI dự đoán cao nhất)
+    - **class_label**: Tên lớp mục tiêu (ví dụ: "LY", "MO")
     - **model_id**: ID của model (tùy chọn)
+    - **box_w / box_h**: Chiều rộng/cao hộp giới hạn tế bào để lọc kích thước
+    - **x1 / y1 / x2 / y2**: Tọa độ hộp giới hạn tế bào để kiểm tra chạm biên
+    - **image_width / image_height**: Kích thước ảnh gốc
     
     Trả về heatmap base64 và thông tin độ tin cậy đã hiệu chuẩn.
     """
@@ -48,8 +61,9 @@ async def get_gradcam(
     image = read_image_from_bytes(raw_bytes)
 
     logger.info(
-        "🔍 XAI Request: file=%s, size=%d, target_idx=%s", 
-        file.filename, len(raw_bytes), class_idx
+        "🔍 XAI Request: file=%s, size=%d, target_idx=%s, target_label=%s, box_w=%s, box_h=%s, is_border=%s", 
+        file.filename, len(raw_bytes), class_idx, class_label, box_w, box_h,
+        f"x1={x1},y1={y1},x2={x2},y2={y2}" if x1 is not None else "No"
     )
 
     # 2. Lazy import dịch vụ XAI để tránh tiêu tốn RAM khi khởi động server
@@ -58,7 +72,19 @@ async def get_gradcam(
     # 3. Chạy xử lý trong threadpool để không block event loop
     def _compute():
         svc = EigenCAMService.get_instance(model_id)
-        return svc.compute_eigencam(image, class_idx=class_idx)
+        return svc.compute_eigencam(
+            image, 
+            class_idx=class_idx,
+            class_label=class_label,
+            box_w=box_w,
+            box_h=box_h,
+            x1=x1,
+            y1=y1,
+            x2=x2,
+            y2=y2,
+            image_width=image_width,
+            image_height=image_height,
+        )
 
     try:
         result = await run_in_threadpool(_compute)

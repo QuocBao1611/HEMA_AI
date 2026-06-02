@@ -358,8 +358,8 @@ def summarize_grid_analysis(
     )
 
     dominant_cell_type = estimated_counts[0] if estimated_counts else None
-    # average_confidence: tính từ tất cả regions (kể cả dưới threshold)
-    all_confidences = [item["confidence"] for item in region_predictions]
+    # average_confidence: tính từ các regions trên ngưỡng tin cậy (confidence >= confidence_threshold)
+    all_confidences = [item["confidence"] for item in region_predictions if item["confidence"] >= confidence_threshold]
 
     return {
         "analyzed_region_count": len(region_predictions),
@@ -835,6 +835,30 @@ def summarize_slide_count(
                     best = rbc_item.copy()
                     best["confidence"] = max(ranked[0]["confidence"], 0.75)
         
+        box_w = box["x2"] - box["x1"]
+        box_h = box["y2"] - box["y1"]
+        is_real_slide = (image_width > 350 and image_height > 350)
+
+        # Hạn chế nhiễu: Tế bào quá nhỏ không thể là Bạch cầu (WBC)
+        is_ext_small = (box_w <= 45 and box_h <= 45)
+        is_large_wbc_but_small_size = (box_w <= 70 and box_h <= 70) and (best["raw_label"] in {"BA", "BNE", "EO", "IG", "MMY", "MO", "MY", "MYO", "PMY", "SNE"})
+
+        if (is_ext_small and best["raw_label"] in {"BA", "BNE", "EO", "ERB", "IG", "LY", "MMY", "MO", "MY", "MYO", "PMY", "SNE"} or is_large_wbc_but_small_size):
+            plt_item = next((item for item in ranked if item["raw_label"] == "PLT"), None)
+            rbc_item = next((item for item in ranked if item["raw_label"] == "RBC"), None)
+            plt_conf = plt_item["confidence"] if plt_item else 0.0
+            rbc_conf = rbc_item["confidence"] if rbc_item else 0.0
+            if plt_conf >= rbc_conf:
+                if plt_item:
+                    best = plt_item.copy()
+                    best["confidence"] = max(ranked[0]["confidence"], 0.75)
+            else:
+                if rbc_item:
+                    best = rbc_item.copy()
+                    best["confidence"] = max(ranked[0]["confidence"], 0.75)
+
+        is_small_cell = (box_w <= 40 and box_h <= 40)
+
         # Lọc tế bào chạm biên nếu đoán thành WBC/ERB -> chuyển sang RBC (tránh tự tin ảo ở rìa ảnh)
         # Chỉ áp dụng nếu ảnh đủ lớn (không phải ảnh test đã crop sẵn) và kích thước box nhỏ (không phải WBC thật)
         is_border = (
@@ -843,12 +867,6 @@ def summarize_slide_count(
             box["x2"] >= image_width - 3 or 
             box["y2"] >= image_height - 3
         )
-        box_w = box["x2"] - box["x1"]
-        box_h = box["y2"] - box["y1"]
-        # Threshold 40px: chỉ PLT/hạt thực sự nhỏ bị force RBC ở biên.
-        # 75px cũ quá rộng: LY (50-80px), MO (60-100px) bị sai lầm chuyển thành RBC.
-        is_small_cell = (box_w <= 40 and box_h <= 40)
-        is_real_slide = (image_width > 350 and image_height > 350)
         
         if is_border and is_real_slide and is_small_cell and best["raw_label"] in {"BA", "BNE", "EO", "ERB", "IG", "LY", "MMY", "MO", "MY", "MYO", "PMY", "SNE"}:
             rbc_item = next((item for item in ranked if item["raw_label"] == "RBC"), None)
@@ -916,8 +934,9 @@ def summarize_slide_count(
     wbc_differential = aggregate_prediction_buckets(wbc_buckets, total_wbc_count)
 
     dominant_cell_type = estimated_counts[0] if estimated_counts else None
-    # average_confidence: tính từ tất cả cells (kể cả dưới threshold) để phản ánh đúng độ tin cậy tổng thể
-    average_confidence = float(np.mean([item["confidence"] for item in cells])) if cells else 0.0
+    # average_confidence: tính từ các cells trên ngưỡng tin cậy (counted = True) để phản ánh đúng độ tin cậy hiển thị
+    counted_cells = [item["confidence"] for item in cells if item["counted"]]
+    average_confidence = float(np.mean(counted_cells)) if counted_cells else 0.0
     average_region_confidence = average_confidence  # same value, different name for backward compat
 
 
@@ -1310,6 +1329,36 @@ def run_yolo_unified_analysis(
                 new_probs[rbc_cls] = conf
                 probs = new_probs
         
+        box_w = x2 - x1
+        box_h = y2 - y1
+        is_real_slide = (image.width > 350 and image.height > 350)
+
+        # Hạn chế nhiễu: Tế bào quá nhỏ không thể là Bạch cầu (WBC)
+        is_ext_small = (box_w <= 45 and box_h <= 45)
+        is_large_wbc_but_small_size = (box_w <= 70 and box_h <= 70) and (raw_label in {"BA", "BNE", "EO", "IG", "MMY", "MO", "MY", "MYO", "PMY", "SNE"})
+
+        if (is_ext_small and raw_label in {"BA", "BNE", "EO", "ERB", "IG", "LY", "MMY", "MO", "MY", "MYO", "PMY", "SNE"} or is_large_wbc_but_small_size):
+            plt_idx = class_names.index("PLT") if "PLT" in class_names else -1
+            rbc_idx = class_names.index("RBC") if "RBC" in class_names else -1
+            plt_prob = probs[plt_idx] if plt_idx != -1 else 0.0
+            rbc_prob = probs[rbc_idx] if rbc_idx != -1 else 0.0
+            if plt_prob >= rbc_prob and plt_idx != -1:
+                cls = plt_idx
+                raw_label = "PLT"
+                conf = max(conf, 0.75)
+                new_probs = np.zeros(nc, dtype=np.float32)
+                new_probs[plt_idx] = conf
+                probs = new_probs
+            elif rbc_idx != -1:
+                cls = rbc_idx
+                raw_label = "RBC"
+                conf = max(conf, 0.75)
+                new_probs = np.zeros(nc, dtype=np.float32)
+                new_probs[rbc_idx] = conf
+                probs = new_probs
+
+        is_small_cell = (box_w <= 40 and box_h <= 40)
+
         # Kiểm tra chạm biên đối với model unified YOLO -> chuyển sang RBC (tránh tự tin ảo ở rìa ảnh)
         # Chỉ áp dụng nếu ảnh đủ lớn (không phải ảnh test đã crop sẵn) và kích thước box nhỏ (không phải WBC thật)
         is_border = (
@@ -1318,11 +1367,6 @@ def run_yolo_unified_analysis(
             x2 >= image.width - 3 or 
             y2 >= image.height - 3
         )
-        box_w = x2 - x1
-        box_h = y2 - y1
-        # Đồng bộ với summarize_slide_count: chỉ force RBC cho PLT thực sự nhỏ (≤40px)
-        is_small_cell = (box_w <= 40 and box_h <= 40)
-        is_real_slide = (image.width > 350 and image.height > 350)
         
         if is_border and is_real_slide and is_small_cell and raw_label in {"BA", "BNE", "EO", "ERB", "IG", "LY", "MMY", "MO", "MY", "MYO", "PMY", "SNE"}:
             rbc_cls = class_names.index("RBC")
@@ -1385,8 +1429,9 @@ def run_yolo_unified_analysis(
     wbc_differential = aggregate_prediction_buckets(wbc_buckets, total_wbc)
 
     dominant_cell_type = estimated_counts[0] if estimated_counts else None
-    # average_confidence: tính từ tất cả cells (kể cả dưới threshold) để phản ánh đúng độ tin cậy tổng thể
-    avg_conf = float(np.mean([c["confidence"] for c in cells])) if cells else 0.0
+    # average_confidence: tính từ các cells trên ngưỡng tin cậy (counted = True) để phản ánh đúng độ tin cậy hiển thị
+    counted_cells = [c["confidence"] for c in cells if c["counted"]]
+    avg_conf = float(np.mean(counted_cells)) if counted_cells else 0.0
     avg_region_conf = avg_conf  # same value, different name for backward compat
 
 

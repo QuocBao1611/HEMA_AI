@@ -45,18 +45,37 @@ def _to_base64_png(img_array: np.ndarray) -> str:
 
 def _find_target_layer_output(model: onnx.ModelProto) -> str | None:
     """Find the output name of the target convolutional layer in ONNX graph."""
+    # Find the index of the first global pooling, squeeze, flatten or dense layer
+    pooling_idx = len(model.graph.node)
+    for idx, node in enumerate(model.graph.node):
+        op_lower = node.op_type.lower()
+        name_lower = node.name.lower()
+        if "global" in op_lower or "global" in name_lower or "flatten" in op_lower or "squeeze" in op_lower or "dense" in name_lower or "fc" in name_lower:
+            pooling_idx = idx
+            break
+
+    # Search only nodes before the pooling layer (in reverse order)
+    nodes_before_pooling = list(enumerate(model.graph.node[:pooling_idx]))
+
+    # 1. Look for specific target layer keywords first (within the valid range)
     for keyword in TARGET_LAYER_KEYWORDS:
-        for node in model.graph.node:
+        for idx, node in reversed(nodes_before_pooling):
             if keyword.lower() in node.name.lower():
+                # Avoid matching first conv 'conv1' or general conv blocks when searching for final conv 'conv_1'
+                if keyword.lower() == "conv_1":
+                    import re
+                    # Match conv_1 as a whole word or separate component (e.g. /conv_1, _conv_1, or exact)
+                    if not re.search(r'(?<![a-zA-Z0-9_])conv_1(?![a-zA-Z0-9])', node.name.lower()):
+                        continue
                 if node.output:
                     return node.output[0]
-    # Fallback: find the last Conv or Relu node before the final Dense layer
-    conv_outputs: list[str] = []
-    for node in model.graph.node:
-        if node.op_type in ("Conv", "Relu", "Clip"):
+
+    # 2. Fallback: last Conv/Relu/Add/Clip node before pooling
+    for idx, node in reversed(nodes_before_pooling):
+        if node.op_type in ("Conv", "Relu", "Add", "Clip"):
             if node.output:
-                conv_outputs.append(node.output[0])
-    return conv_outputs[-1] if conv_outputs else None
+                return node.output[0]
+    return None
 
 
 def _add_intermediate_output(
@@ -168,22 +187,39 @@ class EigenCAMService:
         self,
         image: Image.Image | np.ndarray,
         class_idx: int | None = None,
+        class_label: str | None = None,
+        box_w: int | None = None,
+        box_h: int | None = None,
+        x1: int | None = None,
+        y1: int | None = None,
+        x2: int | None = None,
+        y2: int | None = None,
+        image_width: int | None = None,
+        image_height: int | None = None,
     ) -> dict[str, Any]:
         self._initialize()
 
-        if isinstance(image, np.ndarray):
-            img_rgb = image
-        else:
-            img_rgb = np.asarray(image.convert("RGB"), dtype=np.uint8)
+        from backend.app.services.classifier_service import get_classifier, image_to_array, apply_model_preprocessing
+        classifier = get_classifier(self._model_id)
+        class_names = classifier.class_names
 
-        # 1. Resize dynamically using model's expected shape
-        img_resized = cv2.resize(img_rgb, (self._input_width, self._input_height))
+        # Resolve class index from class label string to prevent ordering mismatches between frontend and backend
+        if class_label and class_label in class_names:
+            class_idx = class_names.index(class_label)
+
+        if isinstance(image, np.ndarray):
+            image_pil = Image.fromarray(image)
+        else:
+            image_pil = image.convert("RGB")
+
+        # 1. Resize dynamically using aspect-ratio preserving letterbox (exactly like the model)
+        img_resized_arr = image_to_array(image_pil, classifier=classifier)
+        img_resized_uint8 = img_resized_arr.astype(np.uint8)
 
         # 2. Add batch dimension
-        img_batch = np.expand_dims(img_resized, axis=0)
+        img_batch = np.expand_dims(img_resized_arr, axis=0)
 
         # 3. Apply model-specific preprocessing
-        from backend.app.services.classifier_service import apply_model_preprocessing
         inp = apply_model_preprocessing(img_batch, self._preprocessing)
 
         # 4. Transpose if the model expects NCHW (e.g. shape is [batch, 3, H, W])
@@ -224,8 +260,80 @@ class EigenCAMService:
         from backend.app.services.classifier_service import _apply_temperature_scaling
         probs = _apply_temperature_scaling(probs[np.newaxis], self._model_id)[0]
 
+        # Áp dụng các Heuristics tinh chỉnh của mô hình
+        ranked = [
+            {
+                "index": i,
+                "raw_label": class_names[i],
+                "label": class_names[i],
+                "confidence": float(probs[i]),
+            }
+            for i in range(len(probs))
+        ]
+        ranked.sort(key=lambda x: x["confidence"], reverse=True)
+        best = ranked[0]
+
+        # H1. Kiểm tra nhân tế bào (WBC hoặc ERB nhưng không nhân -> RBC)
+        if best["raw_label"] in {"BA", "BNE", "EO", "ERB", "IG", "LY", "MMY", "MO", "MY", "MYO", "PMY", "SNE"}:
+            from backend.app.services.analysis_service import check_crop_has_nucleus
+            if not check_crop_has_nucleus(image_pil):
+                rbc_item = next((item for item in ranked if item["raw_label"] == "RBC"), None)
+                if rbc_item:
+                    best = rbc_item.copy()
+                    best["confidence"] = max(ranked[0]["confidence"], 0.75)
+
+        # H2. Hạn chế nhiễu kích thước nhỏ (Bạch cầu kích thước quá bé -> PLT hoặc RBC)
+        if box_w is not None and box_h is not None:
+            is_ext_small = (box_w <= 45 and box_h <= 45)
+            is_large_wbc_but_small_size = (box_w <= 70 and box_h <= 70) and (best["raw_label"] in {"BA", "BNE", "EO", "IG", "MMY", "MO", "MY", "MYO", "PMY", "SNE"})
+            
+            if (is_ext_small and best["raw_label"] in {"BA", "BNE", "EO", "ERB", "IG", "LY", "MMY", "MO", "MY", "MYO", "PMY", "SNE"} or is_large_wbc_but_small_size):
+                plt_item = next((item for item in ranked if item["raw_label"] == "PLT"), None)
+                rbc_item = next((item for item in ranked if item["raw_label"] == "RBC"), None)
+                plt_conf = plt_item["confidence"] if plt_item else 0.0
+                rbc_conf = rbc_item["confidence"] if rbc_item else 0.0
+                if plt_conf >= rbc_conf:
+                    if plt_item:
+                        best = plt_item.copy()
+                        best["confidence"] = max(ranked[0]["confidence"], 0.75)
+                else:
+                    if rbc_item:
+                        best = rbc_item.copy()
+                        best["confidence"] = max(ranked[0]["confidence"], 0.75)
+
+        # H3. Tế bào chạm biên (WBC/ERB chạm biên -> RBC để tránh méo cạnh)
+        if x1 is not None and y1 is not None and x2 is not None and y2 is not None and image_width is not None and image_height is not None:
+            is_real_slide = (image_width > 350 and image_height > 350)
+            box_w_val = x2 - x1
+            box_h_val = y2 - y1
+            is_small_cell = (box_w_val <= 40 and box_h_val <= 40)
+            is_border = (
+                x1 <= 3 or 
+                y1 <= 3 or 
+                x2 >= image_width - 3 or 
+                y2 >= image_height - 3
+            )
+            
+            if is_border and is_real_slide and is_small_cell and best["raw_label"] in {"BA", "BNE", "EO", "ERB", "IG", "LY", "MMY", "MO", "MY", "MYO", "PMY", "SNE"}:
+                rbc_item = next((item for item in ranked if item["raw_label"] == "RBC"), None)
+                if rbc_item:
+                    best = rbc_item.copy()
+                    best["confidence"] = max(ranked[0]["confidence"], 0.51)
+
+        # Cập nhật lại vector xác suất dựa trên điều chỉnh heuristic
+        if best["index"] != np.argmax(probs):
+            new_conf = best["confidence"]
+            old_conf = probs[best["index"]]
+            remaining_sum = 1.0 - new_conf
+            current_other_sum = np.sum(probs) - old_conf
+            if current_other_sum > 0:
+                probs = probs * (remaining_sum / current_other_sum)
+            else:
+                probs = np.ones_like(probs) * (remaining_sum / (len(probs) - 1))
+            probs[best["index"]] = new_conf
+
         if class_idx is None:
-            class_idx = int(np.argmax(probs))
+            class_idx = best["index"]
 
         # 4. EigenCAM: PCA trên feature maps để tìm vùng quan trọng nhất
         fm = feature_maps[0]  # Bỏ batch dimension
@@ -241,38 +349,28 @@ class EigenCAMService:
         h, w, c = fm.shape
         fm_flat = fm.reshape(-1, c)  # (H*W, C)
 
-        # Trừ trung bình để chuẩn bị cho PCA
-        fm_centered = fm_flat - fm_flat.mean(axis=0)
-
         try:
-            # SVD lấy thành phần chính đầu tiên
-            U, S, _ = np.linalg.svd(fm_centered, full_matrices=False)
+            # SVD lấy thành phần chính đầu tiên trên bản đồ kích hoạt thô (không center theo đúng thuật toán EigenCAM)
+            U, S, _ = np.linalg.svd(fm_flat, full_matrices=False)
             cam = (U[:, 0] * S[0]).reshape(h, w)
+            # Đảm bảo dấu của cam là dương (do tính chất ma trận không âm, nhưng SVD có thể trả về dấu âm tùy thuộc thư viện LAPACK)
+            if np.mean(cam) < 0:
+                cam = -cam
         except np.linalg.LinAlgError:
-            # Fallback nếu SVD lỗi
             cam = fm.mean(axis=-1)
 
-        # 5. ReLU + Normalize + Upsample
+        # 5. ReLU + Normalize + Upsample (Dynamic to target model dimension)
         cam = np.maximum(cam, 0)
         if cam.max() > 0:
             cam = cam / cam.max()
-        cam = cv2.resize(cam, (224, 224))
+        cam = cv2.resize(cam, (self._input_width, self._input_height))
 
         # 6. Tạo Heatmap và Overlay
         heatmap = cv2.applyColorMap((cam * 255).astype(np.uint8), cv2.COLORMAP_JET)
 
         # Overlay lên ảnh gốc (BGR cho OpenCV)
-        img_resized_bgr = cv2.resize(img_rgb, (224, 224))
-        img_bgr = cv2.cvtColor(img_resized_bgr, cv2.COLOR_RGB2BGR)
+        img_bgr = cv2.cvtColor(img_resized_uint8, cv2.COLOR_RGB2BGR)
         overlay = cv2.addWeighted(img_bgr, 0.5, heatmap, 0.5, 0)
-
-        # Lấy class names từ classifier_service
-        from backend.app.services.classifier_service import get_classifier_registry
-        registry = get_classifier_registry()
-        if self._model_id in registry:
-            class_names = registry[self._model_id].class_names
-        else:
-            class_names = ["BA", "BNE", "EO", "ERB", "IG", "LY", "MMY", "MO", "MY", "MYO", "PLT", "PMY", "RBC", "SNE"]
 
         nc = min(len(probs), len(class_names))
         return {

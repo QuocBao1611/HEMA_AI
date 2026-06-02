@@ -221,14 +221,18 @@ export function DetectionOverlay({
 
         const metrics = ctx.measureText(text);
         const textHeight = fontSize + 4;
-        const labelX = x;
+        const labelWidth = metrics.width + padding * 2;
+        let labelX = x;
+        if (labelX + labelWidth > canvas.width) {
+          labelX = Math.max(4, canvas.width - labelWidth - 4);
+        }
         const labelY = y - textHeight - padding > 0 ? y - textHeight - padding : y;
 
         const tagColor = isHovered ? "#ef4444" : color;
         ctx.globalAlpha = isDeleteMode && hoveredDetection && !isHovered ? 0.45 : 1;
         ctx.fillStyle = tagColor;
         ctx.beginPath();
-        ctx.roundRect(labelX, labelY, metrics.width + padding * 2, textHeight + padding, Math.min(6, Math.max(3, Math.round(3 * baseScale))));
+        ctx.roundRect(labelX, labelY, labelWidth, textHeight + padding, Math.min(6, Math.max(3, Math.round(3 * baseScale))));
         ctx.fill();
 
         ctx.globalAlpha = 1;
@@ -422,7 +426,7 @@ export function DetectionOverlay({
   return (
     <div
       ref={containerRef}
-      className="relative w-full overflow-hidden rounded-[24px] border border-white/10 bg-slate-950/45 p-3 group select-none"
+      className="relative w-full group select-none"
     >
       {/* Toolbar */}
       <div className="absolute left-4 top-4 z-10 flex items-center gap-1 rounded-xl bg-black/60 p-1 backdrop-blur-md opacity-50 transition-opacity hover:opacity-100 focus-within:opacity-100 group-hover:opacity-100">
@@ -482,7 +486,7 @@ export function DetectionOverlay({
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseLeave}
-        className={`mx-auto block max-w-full rounded-[18px] ${cursorClass}`}
+        className={`mx-auto block max-w-full ${cursorClass}`}
         style={{ touchAction: "none" }}
       />
 

@@ -332,46 +332,105 @@ function PreviewModal({
   imageSrc,
   onClose,
   modelId,
+  classNames,
 }: {
   cell: CellCrop;
   imageSrc: string;
   onClose: () => void;
   modelId?: string;
+  classNames: string[];
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [showXai, setShowXai] = useState(false);
   const [opacity, setOpacity] = useState(0.5);
-  const [selectedClass, setSelectedClass] = useState<string | null>(null);
+  const [selectedClass, setSelectedClass] = useState<string | null>(cell.label);
   const [imageBlob, setImageBlob] = useState<Blob | null>(null);
+  const [imageSize, setImageSize] = useState<{ width: number; height: number } | null>(null);
 
-  // Load image and crop to canvas
+  // Load image and crop to canvas (reproducing exact backend adaptive padding)
   useEffect(() => {
     const img = new Image();
     img.crossOrigin = "anonymous";
     img.onload = () => {
       const canvas = canvasRef.current;
       if (!canvas) return;
-      const SIZE = 320;
-      canvas.width = SIZE;
-      canvas.height = SIZE;
       const ctx = canvas.getContext("2d");
       if (!ctx) return;
-      ctx.drawImage(
-        img,
-        cell.box.x,
-        cell.box.y,
-        cell.box.width,
-        cell.box.height,
-        0,
-        0,
-        SIZE,
-        SIZE
-      );
 
-      // Convert to blob for XAI API
+      setImageSize({ width: img.width, height: img.height });
+
+      const x1 = cell.box.x;
+      const y1 = cell.box.y;
+      const w = cell.box.width;
+      const h = cell.box.height;
+
+      // Adaptive padding calculation (matching backend)
+      const cellSize = Math.max(w, h);
+      let paddingRatio = 0.0;
+      if (cellSize < 35) paddingRatio = 0.15;
+      else if (cellSize < 60) paddingRatio = 0.10;
+      else if (cellSize < 100) paddingRatio = 0.05;
+      else paddingRatio = 0.02;
+
+      const padX = Math.max(1, Math.round(w * paddingRatio));
+      const padY = Math.max(1, Math.round(h * paddingRatio));
+
+      // Theoretical bounding box coordinates
+      const tx1 = x1 - padX;
+      const ty1 = y1 - padY;
+      const tw = w + 2 * padX;
+      const th = h + 2 * padY;
+
+      // Set exact canvas dimensions to prevent aspect ratio distortion
+      canvas.width = tw;
+      canvas.height = th;
+
+      // Estimate background color from the slide (microscopy background is typically pinkish-white)
+      let bgR = 245, bgG = 240, bgB = 240;
+      try {
+        const tempCanvas = document.createElement("canvas");
+        tempCanvas.width = 1;
+        tempCanvas.height = 1;
+        const tempCtx = tempCanvas.getContext("2d");
+        if (tempCtx) {
+          const sampleX = Math.min(10, img.width - 1);
+          const sampleY = Math.min(10, img.height - 1);
+          tempCtx.drawImage(img, sampleX, sampleY, 1, 1, 0, 0, 1, 1);
+          const pixel = tempCtx.getImageData(0, 0, 1, 1).data;
+          if (pixel[3] > 0) {
+            bgR = pixel[0];
+            bgG = pixel[1];
+            bgB = pixel[2];
+          }
+        }
+      } catch (e) {
+        console.warn("Failed to sample background color (CORS?), using default pinkish-white.", e);
+      }
+
+      // Fill canvas background with sampled background color
+      ctx.fillStyle = `rgb(${bgR}, ${bgG}, ${bgB})`;
+      ctx.fillRect(0, 0, tw, th);
+
+      // Boundaries intersection
+      const cx1 = Math.max(0, tx1);
+      const cy1 = Math.max(0, ty1);
+      const cx2 = Math.min(img.width, tx1 + tw);
+      const cy2 = Math.min(img.height, ty1 + th);
+
+      const cw = cx2 - cx1;
+      const ch = cy2 - cy1;
+
+      if (cw > 0 && ch > 0) {
+        // Draw at original scale (1:1), positioning within padding
+        const dx = cx1 - tx1;
+        const dy = cy1 - ty1;
+        ctx.drawImage(img, cx1, cy1, cw, ch, dx, dy, cw, ch);
+      }
+
+      // Convert to blob for XAI API (using lossless PNG to avoid JPEG compression artifacts)
       canvas.toBlob((blob) => {
         if (blob) setImageBlob(blob);
-      }, "image/jpeg", 0.95);
+      }, "image/png");
     };
     img.src = imageSrc;
   }, [imageSrc, cell]);
@@ -380,17 +439,35 @@ function PreviewModal({
   const { data: xaiData, isLoading: xaiLoading, error: queryError } = useQuery({
     queryKey: ["xai", cell.regionId, selectedClass, modelId],
     queryFn: () => {
-      if (!imageBlob) return null;
-      // If we have a selected class name, find its index or pass undefined for top class
-      // Note: We don't have the full class list here, but we can assume the server knows.
-      // For simplicity, we just use the top class if selectedClass is null.
-      return fetchGradCAM(imageBlob, undefined, modelId);
+      if (!imageBlob || !imageSize) return null;
+      const classIdx = selectedClass && classNames.indexOf(selectedClass) !== -1 ? classNames.indexOf(selectedClass) : undefined;
+      return fetchGradCAM(
+        imageBlob,
+        classIdx,
+        modelId,
+        cell.box.width,
+        cell.box.height,
+        cell.box.x,
+        cell.box.y,
+        cell.box.x + cell.box.width,
+        cell.box.y + cell.box.height,
+        imageSize.width,
+        imageSize.height,
+        selectedClass || undefined
+      );
     },
-    enabled: showXai && !!imageBlob,
+    enabled: showXai && !!imageBlob && !!imageSize,
     staleTime: 5 * 60 * 1000,
   });
 
   const xaiError = queryError || (xaiData && !xaiData.success ? new Error(xaiData.error || "XAI failed") : null);
+
+  const activeClass = showXai
+    ? (selectedClass || xaiData?.top_class || cell.label)
+    : cell.label;
+  const activeConfidence = showXai && xaiData?.calibrated_probs
+    ? (xaiData.calibrated_probs[activeClass] !== undefined ? xaiData.calibrated_probs[activeClass] : 0.0)
+    : cell.confidence;
 
   return (
     <div
@@ -409,7 +486,7 @@ function PreviewModal({
         >
           <X className="h-5 w-5" />
         </button>
-
+ 
         {/* Left: Image Viewer */}
         <div className="relative flex flex-shrink-0 items-center justify-center bg-slate-100 p-6 dark:bg-black/40 md:w-[400px]">
           <div className="relative h-80 w-80 overflow-hidden rounded-2xl border border-black/8 shadow-inner dark:border-white/10">
@@ -444,7 +521,7 @@ function PreviewModal({
               </div>
             )}
           </div>
-
+ 
           {/* XAI Toggle Bar */}
           <div className="absolute bottom-10 left-1/2 flex -translate-x-1/2 items-center gap-3 rounded-2xl bg-black/60 px-4 py-2.5 shadow-xl backdrop-blur-xl">
             <button
@@ -471,7 +548,7 @@ function PreviewModal({
             )}
           </div>
         </div>
-
+ 
         {/* Right: Info Panel */}
         <div className="flex flex-1 flex-col overflow-auto p-8">
           <div className="mb-6 flex items-start justify-between">
@@ -481,9 +558,9 @@ function PreviewModal({
               </h4>
               <h2
                 className="text-3xl font-black"
-                style={{ color: getColor(showXai && xaiData?.top_class ? xaiData.top_class : cell.label) }}
+                style={{ color: getColor(activeClass) }}
               >
-                {showXai && xaiData?.top_class ? xaiData.top_class : cell.label}
+                {activeClass}
               </h2>
               <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
                 Vùng #{cell.regionId} — {cell.box.width}×{cell.box.height}px
@@ -491,12 +568,12 @@ function PreviewModal({
             </div>
             <div className="text-right">
               <div className="text-3xl font-black text-slate-900 dark:text-white">
-                {formatPercent(showXai && xaiData?.confidence !== undefined ? xaiData.confidence : cell.confidence)}
+                {formatPercent(activeConfidence)}
               </div>
               <div className="text-xs font-bold text-slate-400">ĐỘ TIN CẬY</div>
             </div>
           </div>
-
+ 
           {/* Alert if XAI differs from Original */}
           {showXai && xaiData && xaiData.top_class !== cell.label && (
             <div className="mb-6 rounded-xl bg-amber-500/10 p-3 border border-amber-500/20 flex items-start gap-3">
@@ -507,9 +584,9 @@ function PreviewModal({
               </p>
             </div>
           )}
-
+ 
           {/* Probabilities Section */}
-
+ 
           <div className="mb-6 flex-1 space-y-4">
             <div className="flex items-center gap-2 border-b border-black/5 pb-2 dark:border-white/5">
               <Layers className="h-4 w-4 text-slate-400" />
@@ -517,35 +594,50 @@ function PreviewModal({
                 Xác suất phân loại {showXai && "(Đã hiệu chuẩn)"}
               </h3>
             </div>
-
+ 
             <div className="space-y-3">
-              {(xaiData?.calibrated_probs
+              {((showXai && xaiData?.calibrated_probs
                 ? Object.entries(xaiData.calibrated_probs).sort(
                     ([, a], [, b]) => b - a
                   )
-                : [[cell.label, cell.confidence]]
-              ).map(([label, prob]) => (
-                <div key={label} className="group flex flex-col gap-1.5">
-                  <div className="flex items-center justify-between text-xs font-bold">
-                    <span className="text-slate-600 dark:text-slate-400">
-                      {label}
-                    </span>
-                    <span className="text-slate-900 dark:text-white">
-                      {formatPercent(prob as number)}
-                    </span>
+                : [[cell.label, cell.confidence]] as [string, number][]
+              ) as [string, number][]).map(([label, prob]) => {
+                const isActive = label === activeClass;
+                return (
+                  <div
+                    key={label}
+                    className={`group flex flex-col gap-1.5 p-1.5 rounded-xl transition cursor-pointer ${
+                      isActive
+                        ? "bg-slate-100/50 dark:bg-white/5 ring-1 ring-emerald-500/20"
+                        : "hover:bg-slate-50/50 dark:hover:bg-white/[0.02]"
+                    }`}
+                    onClick={() => {
+                      if (showXai) {
+                        setSelectedClass(label);
+                      }
+                    }}
+                  >
+                    <div className="flex items-center justify-between text-xs font-bold">
+                      <span className={`${isActive ? "text-slate-900 dark:text-white font-extrabold" : "text-slate-600 dark:text-slate-400"}`}>
+                        {label} {isActive && showXai && <span className="ml-1 text-[9px] text-emerald-500 font-bold bg-emerald-500/10 px-1 py-0.5 rounded">XAI Active</span>}
+                      </span>
+                      <span className={isActive ? "text-slate-900 dark:text-white" : "text-slate-500"}>
+                        {formatPercent(prob as number)}
+                      </span>
+                    </div>
+                    <div className="h-2 overflow-hidden rounded-full bg-slate-100 dark:bg-white/5">
+                      <div
+                        className="h-full rounded-full transition-all duration-700"
+                        style={{
+                          width: `${(prob as number) * 100}%`,
+                          backgroundColor: getColor(label as string),
+                          opacity: isActive ? 1 : 0.3,
+                        }}
+                      />
+                    </div>
                   </div>
-                  <div className="h-2 overflow-hidden rounded-full bg-slate-100 dark:bg-white/5">
-                    <div
-                      className="h-full rounded-full transition-all duration-700"
-                      style={{
-                        width: `${(prob as number) * 100}%`,
-                        backgroundColor: getColor(label as string),
-                        opacity: label === cell.label ? 1 : 0.4,
-                      }}
-                    />
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
 
@@ -652,9 +744,8 @@ export function CellReviewGallery({
               Kiểm duyệt tế bào
             </h3>
             <p className="text-sm text-slate-600 dark:text-slate-300/72">
-              Nhấn &quot;Sửa&quot; để chỉnh lại nhãn nếu AI nhận diện sai.
               {correctionCount > 0 && (
-                <span className="ml-2 rounded-full bg-amber-500/15 px-2 py-0.5 text-xs font-bold text-amber-600 dark:text-amber-400">
+                <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-xs font-bold text-amber-600 dark:text-amber-400">
                   {correctionCount} đã chỉnh sửa
                 </span>
               )}
@@ -745,6 +836,7 @@ export function CellReviewGallery({
           imageSrc={imageSrc}
           onClose={() => setPreviewCell(null)}
           modelId={modelId}
+          classNames={classNames}
         />
       )}
     </>

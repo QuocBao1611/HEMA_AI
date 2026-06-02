@@ -20,6 +20,7 @@ Chart.register(...registerables);
 interface Metric {
   label: string;
   values: number[];
+  displayValues?: string[];
   unit?: string;
 }
 
@@ -148,7 +149,9 @@ function BarComparison({ metrics, names }: { metrics: Metric[]; names: string[] 
             <span className="text-foreground/60">{m.label}</span>
             <div className="flex gap-3">
               {m.values.map((v, i) => (
-                <span key={names[i]} style={{ color: MODEL_COLORS[i] }}>{v}{m.unit}</span>
+                <span key={names[i]} style={{ color: MODEL_COLORS[i] }}>
+                  {m.displayValues ? m.displayValues[i] : `${v}${m.unit || ""}`}
+                </span>
               ))}
             </div>
           </div>
@@ -157,7 +160,6 @@ function BarComparison({ metrics, names }: { metrics: Metric[]; names: string[] 
               <div
                 className="absolute left-0 top-0 h-full rounded-full transition-all duration-700"
                 style={{ width: `${v}%`, background: MODEL_COLORS[i], opacity: 1 }}
-
               />
             </div>
           ))}
@@ -447,32 +449,55 @@ export function ModelComparison() {
     const benchmarks = rows.map(r => allBenchmarks[r.model_id]?.metrics || fallback);
     const names = rows.map(r => r.display_name);
 
+    // Tính tốc độ thực tế và chuẩn hóa tốc độ cho thanh tiến trình (càng nhanh thanh càng dài)
+    const executionTimes = rows.map(r => r.execution_time_ms || 0);
+    const validTimes = executionTimes.filter(t => t > 0);
+    const minTime = validTimes.length > 0 ? Math.min(...validTimes) : 0;
+
+    const speedBarValues = executionTimes.map(t => {
+      if (t <= 0 || minTime <= 0) return 0;
+      return Number(((minTime / t) * 100).toFixed(1));
+    });
+
+    const speedDisplayValues = rows.map(r => {
+      const ms = r.execution_time_ms;
+      if (!ms) return "N/A";
+      return ms < 1000 ? `${Math.round(ms)}ms` : `${(ms / 1000).toFixed(2)}s`;
+    });
+
     const radarDatasets = rows.map((row, i) => {
-      const m = benchmarks[i];
       const reliableRate = row.detected_cell_count > 0
-        ? Math.round((row.classified_cell_count / row.detected_cell_count) * 100)
+        ? (row.classified_cell_count / row.detected_cell_count) * 100
         : 0;
       return [
         row.average_confidence * 100,
         reliableRate,
-        m.inference_speed_score || 85,
+        speedBarValues[i],
       ];
     });
 
     const summaryCards = [
-      { label: "Số tế bào (Cells)", values: rows.map(r => formatCount(r.detected_cell_count)) },
+      { label: "Số tế bào (Cells)", values: rows.map(r => formatCount(r.classified_cell_count)) },
       { label: "Độ tự tin (Avg)", values: rows.map(r => formatPercent(r.average_confidence)) },
-      { label: "Tốc độ phân tích", values: rows.map(r => r.execution_time_ms ? (r.execution_time_ms < 1000 ? `${Math.round(r.execution_time_ms)}ms` : `${(r.execution_time_ms / 1000).toFixed(2)}s`) : "Đang tính...") },
+      { label: "Tốc độ phân tích", values: speedDisplayValues },
     ];
 
     const barMetrics: Metric[] = [
-      { label: "Độ tự tin trung bình (Thực tế)", values: rows.map(r => Math.round(r.average_confidence * 100)), unit: "%" },
       {
-        label: "Tỷ lệ nhận diện tin cậy",
-        values: rows.map(r => r.detected_cell_count > 0 ? Math.round((r.classified_cell_count / r.detected_cell_count) * 100) : 0),
+        label: "Độ tự tin trung bình (Thực tế)",
+        values: rows.map(r => Number((r.average_confidence * 100).toFixed(1))),
         unit: "%"
       },
-      { label: "Tốc độ suy luận (Speed)", values: benchmarks.map(m => Math.round(m.inference_speed_score || 85)), unit: "%" },
+      {
+        label: "Tỷ lệ nhận diện tin cậy",
+        values: rows.map(r => r.detected_cell_count > 0 ? Number(((r.classified_cell_count / r.detected_cell_count) * 100).toFixed(1)) : 0),
+        unit: "%"
+      },
+      {
+        label: "Tốc độ suy luận (Thực tế)",
+        values: speedBarValues,
+        displayValues: speedDisplayValues
+      },
     ];
 
     return { rows, names, radarDatasets, summaryCards, barMetrics };
