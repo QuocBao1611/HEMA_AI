@@ -27,6 +27,7 @@ from backend.app.services.persistence_service import (
     list_recent_analyses_filtered,
     load_clinical_flag_rules,
     save_label_configuration,
+    update_analysis_record,
 )
 
 router = APIRouter(prefix="/api/v1", tags=["system"])
@@ -260,6 +261,16 @@ def get_history_detail(record_id: int) -> dict[str, Any]:
         **record,
         "database": database_health(),
     }
+
+
+@router.put("/history/{record_id}")
+def update_history_record(record_id: int, payload: dict[str, Any]) -> dict[str, Any]:
+    result_payload = payload.get("result_payload") if "result_payload" in payload else payload
+    success, error = update_analysis_record(record_id, result_payload)
+    if not success:
+        raise HTTPException(status_code=400, detail=error or "Lỗi khi cập nhật bản ghi.")
+    return {"status": "success", "message": "Đã cập nhật bản ghi thành công."}
+
 
 
 # ---------------------------------------------------------------------------

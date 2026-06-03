@@ -416,28 +416,59 @@ def record_analysis(result: dict[str, Any], request_payload: dict[str, Any] | No
 
     try:
         with open_session() as db:
-            db.add(
-                AnalysisRecord(
-                    mode=str(result.get("mode") or "unknown"),
-                    analysis_mode=result.get("analysis_mode"),
-                    filename=result.get("filename"),
-                    model_id=summary["selected_model_id"],
-                    model_name=summary["selected_model_name"],
-                    image_width=image_size.get("width"),
-                    image_height=image_size.get("height"),
-                    detected_cell_count=summary["detected_cell_count"],
-                    classified_cell_count=summary["classified_cell_count"],
-                    average_confidence=summary["average_confidence"],
-                    dominant_label=summary["dominant_label"],
-                    request_payload=request_payload or {},
-                    result_payload=result,
-                    notes=result.get("note"),
-                )
+            record = AnalysisRecord(
+                mode=str(result.get("mode") or "unknown"),
+                analysis_mode=result.get("analysis_mode"),
+                filename=result.get("filename"),
+                model_id=summary["selected_model_id"],
+                model_name=summary["selected_model_name"],
+                image_width=image_size.get("width") if image_size else None,
+                image_height=image_size.get("height") if image_size else None,
+                detected_cell_count=summary["detected_cell_count"],
+                classified_cell_count=summary["classified_cell_count"],
+                average_confidence=summary["average_confidence"],
+                dominant_label=summary["dominant_label"],
+                request_payload=request_payload or {},
+                result_payload=result,
+                notes=result.get("note"),
             )
+            db.add(record)
             db.commit()
+            db.refresh(record)
+            result["id"] = record.id
         return True, None
     except SQLAlchemyError:
         return False, "Không thể lưu lịch sử phân tích vào cơ sở dữ liệu."
+
+
+def update_analysis_record(record_id: int, result_payload: dict[str, Any]) -> tuple[bool, str | None]:
+    if not database_health()["ready"]:
+        return False, database_health()["last_error"]  # type: ignore[index]
+
+    summary = summarize_result_for_history(result_payload)
+    image_size = summary["image_size"]
+
+    try:
+        with open_session() as db:
+            record = db.execute(
+                select(AnalysisRecord).where(AnalysisRecord.id == record_id)
+            ).scalar_one_or_none()
+            if record is None:
+                return False, "Không tìm thấy bản ghi lịch sử."
+
+            record.detected_cell_count = summary["detected_cell_count"]
+            record.classified_cell_count = summary["classified_cell_count"]
+            record.average_confidence = summary["average_confidence"]
+            record.dominant_label = summary["dominant_label"]
+            record.result_payload = result_payload
+            if image_size:
+                record.image_width = image_size.get("width")
+                record.image_height = image_size.get("height")
+            db.commit()
+        return True, None
+    except SQLAlchemyError:
+        return False, "Không thể cập nhật lịch sử phân tích vào cơ sở dữ liệu."
+
 
 
 def list_recent_analyses(limit: int | None = None) -> list[dict[str, Any]]:

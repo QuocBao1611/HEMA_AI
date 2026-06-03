@@ -112,6 +112,7 @@ export const predictionItemSchema = z.object({
 });
 
 export const predictResponseSchema = z.object({
+  id: z.number().optional(),
   mode: z.literal("predict"),
   filename: z.string(),
   selected_model_id: z.string(),
@@ -154,9 +155,11 @@ export const regionPredictionSchema = z.object({
   label: z.string(),
   class_index: z.number(),
   confidence: z.number(),
+  isManual: z.boolean().optional(),
 });
 
 export const analyzeResponseSchema = z.object({
+  id: z.number().optional(),
   mode: z.literal("analyze"),
   analysis_mode: z.string(),
   selected_model_id: z.string(),

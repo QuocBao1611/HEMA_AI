@@ -9,6 +9,7 @@ type Detection = {
   label: string;
   confidence: number;
   counted?: boolean;
+  isCorrected?: boolean;
 };
 
 type ToolMode = "pan" | "draw" | "delete";
@@ -215,9 +216,11 @@ export function DetectionOverlay({
         }
 
         // Label tag
-        const text = det.region_id
-          ? `#${det.region_id} ${det.label} ${(det.confidence * 100).toFixed(0)}%`
-          : `${det.label} ${(det.confidence * 100).toFixed(0)}%`;
+        const text = det.isCorrected
+          ? (det.region_id ? `#${det.region_id} ${det.label}` : det.label)
+          : (det.region_id
+              ? `#${det.region_id} ${det.label} ${(det.confidence * 100).toFixed(0)}%`
+              : `${det.label} ${(det.confidence * 100).toFixed(0)}%`);
 
         const metrics = ctx.measureText(text);
         const textHeight = fontSize + 4;

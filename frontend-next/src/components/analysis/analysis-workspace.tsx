@@ -19,6 +19,7 @@ import {
   FileImage,
   FlaskConical,
   LoaderCircle,
+  Save,
   Settings,
   Microscope,
   Sparkles,
@@ -32,7 +33,7 @@ import { analysisDefaults, type ResultTabKey } from "@/lib/constants/analysis";
 import { formatCount, formatPercent } from "@/lib/utils/format";
 import { validateImageFile } from "@/lib/validators/upload";
 import { useSystemInfo } from "@/hooks/use-system-info";
-import type { AnalyzeResponse, CountRow, PredictResponse } from "@/types/api";
+import type { AnalyzeResponse, CountRow, PredictResponse, RegionPrediction } from "@/types/api";
 import { Button } from "@/components/ui/button";
 import { SurfaceCard } from "@/components/ui/surface-card";
 import { ClinicalFlags } from "@/components/analysis/clinical-flags";
@@ -303,6 +304,7 @@ export function AnalysisWorkspace() {
   const [activeTab, setActiveTab] = useState<ResultTabKey>("counts");
   const [corrections, setCorrections] = useState<Map<number, CellCorrection>>(new Map());
   const [highlightedIds, setHighlightedIds] = useState<Set<number>>(new Set());
+  const [isSaving, setIsSaving] = useState(false);
 
   const handleCorrect = useCallback((regionId: number, newLabel: string) => {
     if (!result || result.mode !== "analyze") return;
@@ -338,6 +340,73 @@ export function AnalysisWorkspace() {
     if (!result || result.mode !== "analyze") return null;
     return recomputeCounts(result, corrections);
   }, [result, corrections]);
+
+  const getMergedResult = useCallback((): AnalyzeResponse | null => {
+    if (!result || result.mode !== "analyze") return null;
+    const analyzeResult = result as AnalyzeResponse;
+
+    const detected_cell_count = correctedResult ? correctedResult.total_detected : analyzeResult.detected_cell_count;
+    const classified_cell_count = correctedResult ? correctedResult.total_classified : analyzeResult.classified_cell_count;
+    const average_confidence = correctedResult ? correctedResult.average_confidence : analyzeResult.average_confidence;
+    const estimated_counts = correctedResult ? correctedResult.estimated_counts : (analyzeResult.estimated_counts ?? []);
+    const grouped_counts = correctedResult ? correctedResult.grouped_counts : (analyzeResult.grouped_counts ?? []);
+    const wbc_differential = correctedResult ? correctedResult.wbc_differential : (analyzeResult.wbc_differential ?? []);
+
+    const updatedRegions = (analyzeResult.region_predictions ?? []).map((rp) => {
+      const correction = corrections.get(rp.region_id);
+      if (correction) {
+        return {
+          ...rp,
+          label: correction.newLabel,
+        };
+      }
+      return rp;
+    });
+
+    return {
+      ...analyzeResult,
+      detected_cell_count,
+      classified_cell_count,
+      estimated_total_cells: classified_cell_count,
+      average_confidence,
+      estimated_counts,
+      grouped_counts,
+      wbc_differential,
+      dominant_cell_type: estimated_counts.length > 0 ? {
+        label: estimated_counts[0].label,
+        count: estimated_counts[0].count,
+        ratio: estimated_counts[0].ratio,
+        average_confidence: estimated_counts[0].average_confidence ?? 0,
+        max_confidence: estimated_counts[0].max_confidence ?? 0,
+        class_index: estimated_counts[0].class_index ?? 0,
+      } : null,
+      region_predictions: updatedRegions,
+    };
+  }, [result, correctedResult, corrections]);
+
+  const handleSave = useCallback(async () => {
+    if (!result || !result.id) {
+      toast.error("Không tìm thấy mã bản ghi để lưu.");
+      return;
+    }
+    setIsSaving(true);
+    const toastId = toast.loading("Đang lưu các thay đổi...");
+    try {
+      const merged = getMergedResult();
+      if (!merged) throw new Error("Không thể gộp kết quả phân tích.");
+
+      const { updateHistoryRecord } = await import("@/lib/api/dashboard");
+      await updateHistoryRecord(result.id, merged);
+
+      toast.success("Đã lưu các thay đổi thành công vào lịch sử.", { id: toastId });
+      window.dispatchEvent(new Event("workspace:data-changed"));
+    } catch (e) {
+      console.error(e);
+      toast.error("Lỗi khi lưu thay đổi.", { id: toastId });
+    } finally {
+      setIsSaving(false);
+    }
+  }, [result, getMergedResult]);
 
   function getCorrectedRowsForTab(tab: ResultTabKey): CountRow[] {
     if (!result || result.mode !== "analyze") return [];
@@ -500,6 +569,7 @@ export function AnalysisWorkspace() {
           label: prediction.label,
           confidence: prediction.confidence,
           class_index: 0,
+          isManual: true,
         };
 
         return {
@@ -518,7 +588,7 @@ export function AnalysisWorkspace() {
         const nextId = currentIds.length > 0 ? Math.max(...currentIds) + 1 : 1;
         return {
           ...prev,
-          region_predictions: [...prev.region_predictions, { region_id: nextId, box: box, label: "RBC", confidence: 1.0, class_index: 0 }],
+          region_predictions: [...prev.region_predictions, { region_id: nextId, box: box, label: "RBC", confidence: 1.0, class_index: 0, isManual: true }],
         };
       });
       toast.error("Không thể nhận diện tự động, đã gán nhãn mặc định là RBC", { id: toastId });
@@ -914,21 +984,36 @@ export function AnalysisWorkspace() {
                 />
               </div>
 
-              <div className="mt-5">
+              <div className="mt-5 flex flex-wrap gap-3">
                 <Button
                   variant="secondary"
-                  onClick={() =>
+                  onClick={() => {
+                    const merged = getMergedResult() || result;
                     exportAnalysisReport({
                       title: "HemaVision Analysis Report",
-                      filename: `${result.filename || "analysis"}-${result.mode}`,
-                      result,
-                      rules: result.mode === "analyze" ? clinicalFlagRules : undefined,
-                    })
-                  }
+                      filename: `${merged.filename || "analysis"}-${merged.mode}`,
+                      result: merged,
+                      rules: merged.mode === "analyze" ? clinicalFlagRules : undefined,
+                    });
+                  }}
                 >
                   <Download className="mr-2 h-4 w-4" />
                   Xuất PDF report
                 </Button>
+                {result.mode === "analyze" && result.id && (
+                  <Button
+                    onClick={handleSave}
+                    disabled={isSaving}
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white shadow-md transition-all duration-200"
+                  >
+                    {isSaving ? (
+                      <LoaderCircle className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <Save className="mr-2 h-4 w-4" />
+                    )}
+                    Lưu chỉnh sửa
+                  </Button>
+                )}
               </div>
             </SurfaceCard>
 
@@ -947,12 +1032,16 @@ export function AnalysisWorkspace() {
                 </div>
                 <DetectionOverlay
                   imageSrc={previewUrl}
-                  detections={result.region_predictions.map((rp: { region_id: number; box: { x: number; y: number; width: number; height: number }; label: string; confidence: number }) => ({
-                    region_id: rp.region_id,
-                    box: rp.box,
-                    label: rp.label,
-                    confidence: rp.confidence,
-                  }))}
+                  detections={result.region_predictions.map((rp: RegionPrediction) => {
+                    const correction = corrections.get(rp.region_id);
+                    return {
+                      region_id: rp.region_id,
+                      box: rp.box,
+                      label: correction ? correction.newLabel : rp.label,
+                      confidence: rp.confidence,
+                      isCorrected: !!correction || rp.isManual,
+                    };
+                  })}
                   onAddDetection={handleAddDetection}
                   onDeleteDetection={handleDeleteDetection}
                   highlightedIds={highlightedIds}

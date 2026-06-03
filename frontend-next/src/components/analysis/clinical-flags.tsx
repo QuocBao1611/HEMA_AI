@@ -110,9 +110,9 @@ function getRowsForSource(result: AnalyzeResponse, source: string): CountRow[] {
 function buildDetail(row: CountRow, field: string, result: AnalyzeResponse, corrections?: Map<number, { newLabel: string }>) {
   let baseText = "";
   if (field === "ratio") {
-    baseText = `${row.label}: ${formatPercent(row.ratio)}`;
+    baseText = `${row.label}`;
   } else {
-    baseText = `${row.label}: ${row.count} tế bào (${formatPercent(row.ratio)})`;
+    baseText = `${row.label}: ${row.count} tế bào`;
   }
 
   if (result.region_predictions && result.region_predictions.length > 0) {

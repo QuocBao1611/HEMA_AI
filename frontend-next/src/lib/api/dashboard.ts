@@ -3,7 +3,7 @@ import {
   historyDetailSchema,
   historyResponseSchema,
 } from "@/schemas/api";
-import { apiGet } from "@/lib/api/client";
+import { apiGet, apiPutJson } from "@/lib/api/client";
 import type {
   HealthResponse,
   HistoryDetailResponse,
@@ -39,6 +39,10 @@ export function getHistory(options: HistoryQueryOptions = {}) {
 
 export function getHistoryDetail(recordId: number) {
   return apiGet<HistoryDetailResponse>(`/history/${recordId}`, historyDetailSchema);
+}
+
+export function updateHistoryRecord(recordId: number, resultPayload: Record<string, any>) {
+  return apiPutJson<{ status: string; message: string }>(`/history/${recordId}`, resultPayload);
 }
 
 export async function getDashboardSnapshot(options: HistoryQueryOptions = {}) {

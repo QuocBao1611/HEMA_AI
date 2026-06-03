@@ -155,6 +155,7 @@ export type DominantCellType = {
 };
 
 export type PredictResponse = {
+  id?: number;
   mode: "predict";
   filename: string;
   selected_model_id: string;
@@ -173,9 +174,11 @@ export type RegionPrediction = {
   label: string;
   class_index: number;
   confidence: number;
+  isManual?: boolean;
 };
 
 export type AnalyzeResponse = {
+  id?: number;
   mode: "analyze";
   analysis_mode: string;
   selected_model_id: string;
